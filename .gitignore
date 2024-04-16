@@ -1,0 +1,10 @@
+*.pyc
+.env
+.DS_Store
+**/**__pycache__/
+venv
+prisma/.env
+prisma/.env.local
+postgres-data/
+
+
