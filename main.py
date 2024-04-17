@@ -1,64 +1,53 @@
-from contextlib import asynccontextmanager
-from routers.webhooks.mints import router as mint_router
-from prisma import Prisma
-from colorama import Fore, Style, init, Back
 from fastapi import Request, Response, status, FastAPI
+from fastapi.security import OAuth2PasswordBearer
+from Config.Connection import prisma_connection
+from contextlib import asynccontextmanager
+from colorama import Fore, Style, init, Back
 from dotenv import load_dotenv
 
-# Module Setup
+#----------------- Routes -----------------
+
+from Controller.auth import router as auth_router
+
+#-----------------        -----------------
+
+#OAuth2PasswordBearer = OAuth2PasswordBearer(tokenUrl="/token/find") -> This is used for authentication later on
 load_dotenv()
 init(autoreset=True)
 
+# ----------------- Messages -----------------
+
+PRISMA_CONNECTING_MESSAGE = Fore.BLACK + Back.RED + "Starting Prisma connection..."
+PRISMA_CONNECTED_MESSAGE = Fore.GREEN + "[>] Connected with Prisma"
+PRISMA_DISCONNECTING_MESSAGE = Fore.BLACK + Back.RED + "Closing Prisma connection..."
+PRISMA_DISCONNECTED_MESSAGE = Fore.RED + "[X] Disconnected from Prisma"
+FASTAPI_STARTING_MESSAGE = Fore.BLACK + Back.RED + "Starting FastAPI server..."
 
 # ----------------- Prisma -----------------
 
-db = None
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db
-    if not db:
-        db = Prisma()
-        await db.connect()
-        print(Fore.GREEN + "Connected to Prisma : " + str(db.is_connected()))
-    yield
-    if db:
-        await db.disconnect()
 
+    print(PRISMA_CONNECTING_MESSAGE)
+    await prisma_connection.connect()
+
+    if prisma_connection.is_connected() == False:
+        print(Fore.RED + "[X] Failed to connect to Database")
+        raise Exception("Failed to connect to Database server")
+    
+    print(PRISMA_CONNECTED_MESSAGE)
+
+    yield
+
+    print(PRISMA_DISCONNECTING_MESSAGE)
+    await prisma_connection.disconnect()
+    print(PRISMA_DISCONNECTED_MESSAGE)
 
 # ------------------------------- FastAPI  -------------------------------
 
-
-print(Fore.BLACK + Back.RED + "Starting webhook server...")
+print(FASTAPI_STARTING_MESSAGE)
 app = FastAPI(name="webhook-server-solana", description="A webhook server for Solana", version="0.0.1", lifespan=lifespan)
-app.include_router(mint_router)
-
-public_paths = ["/", "/docs", "/redoc", "/openapi.json"]
-
-# ----------------- Middleware -----------------
-
-@app.middleware("http") 
-async def check_api_key(request: Request, call_next):
-    if(request.url.path in public_paths):
-        return await call_next(request)
-    else:
-        submitted_key = request.headers.get("X-API-Key")
-        api_key = await db.apikey.find_first( where={"key": submitted_key})
-
-        print(api_key)
-        if not api_key:
-            return Response(status_code=status.HTTP_401_UNAUTHORIZED, content="Invalid/Missing API Key")
-        
-        return await call_next(request)
-
-
-@app.middleware("http")
-async def log_request(request: Request, call_next):
-    print(Fore.WHITE + Back.BLACK + f"Incoming request: {request.url.path}")
-    response = await call_next(request)
-    print(Fore.WHITE + Back.BLACK + f"Outgoing response: {response}")
-    return response
-    
+app.include_router(auth_router)
 
 # ----------------- Basic Routes -----------------
 
