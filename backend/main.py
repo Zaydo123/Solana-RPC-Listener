@@ -1,18 +1,21 @@
 from fastapi import Request, Response, status, FastAPI
-from fastapi.security import OAuth2PasswordBearer
 from Config.Connection import prisma_connection
 from contextlib import asynccontextmanager
 from colorama import Fore, Style, init, Back
-from dotenv import load_dotenv
+from typing import Annotated
+#from dotenv import load_dotenv
+#import os
+#import sys
 
 #----------------- Routes -----------------
 
 from Controller.auth import router as auth_router
+from Controller.user import router as user_router
 
 #-----------------        -----------------
 
 #OAuth2PasswordBearer = OAuth2PasswordBearer(tokenUrl="/token/find") -> This is used for authentication later on
-load_dotenv()
+#load_dotenv()
 init(autoreset=True)
 
 # ----------------- Messages -----------------
@@ -47,11 +50,13 @@ async def lifespan(app: FastAPI):
 
 print(FASTAPI_STARTING_MESSAGE)
 app = FastAPI(name="webhook-server-solana", description="A webhook server for Solana", version="0.0.1", lifespan=lifespan)
+
 app.include_router(auth_router)
+app.include_router(user_router)
+
 
 # ----------------- Basic Routes -----------------
 
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
-

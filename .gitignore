@@ -5,3 +5,7 @@
 **/**.env
 postgres-data/
 venv
+.pytest_cache/
+build/
+egg-info/
+*.egg-info
