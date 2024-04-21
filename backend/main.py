@@ -9,7 +9,7 @@ from typing import Annotated
 
 #----------------- Routes -----------------
 
-from Controller.auth import router as auth_router
+from Controller.apiKey import router as apikey_router
 from Controller.user import router as user_router
 
 #-----------------        -----------------
@@ -20,11 +20,11 @@ init(autoreset=True)
 
 # ----------------- Messages -----------------
 
-PRISMA_CONNECTING_MESSAGE = Fore.BLACK + Back.RED + "Starting Prisma connection..."
-PRISMA_CONNECTED_MESSAGE = Fore.GREEN + "[>] Connected with Prisma"
-PRISMA_DISCONNECTING_MESSAGE = Fore.BLACK + Back.RED + "Closing Prisma connection..."
-PRISMA_DISCONNECTED_MESSAGE = Fore.RED + "[X] Disconnected from Prisma"
-FASTAPI_STARTING_MESSAGE = Fore.BLACK + Back.RED + "Starting FastAPI server..."
+PRISMA_CONNECTING_MESSAGE    = Fore.BLACK + Back.RED + "[!] Starting Prisma connection..."
+PRISMA_CONNECTED_MESSAGE     = Fore.GREEN +            "[✓] Connected with Prisma"
+PRISMA_DISCONNECTING_MESSAGE = Fore.BLACK + Back.RED + "[!] Closing Prisma connection..."
+PRISMA_DISCONNECTED_MESSAGE  = Fore.RED +              "[X] Disconnected from Prisma"
+FASTAPI_STARTING_MESSAGE     = Fore.BLACK + Back.RED + "[!] Starting FastAPI server..."
 
 # ----------------- Prisma -----------------
 
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
 print(FASTAPI_STARTING_MESSAGE)
 app = FastAPI(name="webhook-server-solana", description="A webhook server for Solana", version="0.0.1", lifespan=lifespan)
 
-app.include_router(auth_router)
+app.include_router(apikey_router)
 app.include_router(user_router)
 
 

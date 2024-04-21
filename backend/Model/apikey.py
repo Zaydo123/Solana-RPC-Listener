@@ -1,10 +1,13 @@
 from pydantic import BaseModel
 
-class CreateApiKey(BaseModel):
+class ApiKey(BaseModel):
     key: str
     user_id: int
     ip_whitelist: list
     rate_limit: int
+
+class CreateApiKey(BaseModel):
+    ip_whitelist: list
     
 class GetApiKey(BaseModel):
     id: int
