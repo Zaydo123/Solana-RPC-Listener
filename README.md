@@ -1,10 +1,13 @@
-# Solana Webhook Listener
+# Solana Token Data Ingestor
 | **Documentation** | **Build Status** | **Code Coverage** | **License** |
 |:-----------------:|:----------------:|:-----------------:|:-----------:|
  |[![Documentation](https://img.shields.io/badge/docs-passing-brightgreen)](https://zaydo123.github.io/Solana-RPC-Listener/) | N/A | N/A | ![License](https://img.shields.io/badge/license-MIT-blue)|
 
 ## Description
-This is a solana transaction listener that listens to the solana rpc endpoint and stores the transactions in a database. The server is built using FastAPI and the database is managed using Prisma ORM. The purpose of this project is to provide a way to listen to solana transactions and store them in a database to later be used to train machine learning models. Once developed, the server will be able to listen to the solana rpc endpoint and store the transactions in a database with authenticated api endpoints to query the data.
+This project, which is in progress, is a Solana RPC listener that listens for token transactions and stores, caches, and serves the data in a RESTful API. The ingested primarily focuses on token transactions and token mints, and will be used to power a trading bot that will be able to make trades based on the data it receives.
+
+## Program Flow
+[![Program Flow](./project_plan.png)](https://zaydo123.github.io/Solana-RPC-Listener/)
 
 ## Installation
 
