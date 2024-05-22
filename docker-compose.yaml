@@ -12,3 +12,41 @@ services:
       - "5432:5432"
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    command: redis-server
+    volumes:
+      - redis:/var/lib/redis
+      - redis-config:/usr/local/etc/redis/redis.conf
+    ports:
+      - ${REDIS_PORT}:6379
+    networks:
+      - redis-network
+    env_file:
+      - .env
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    hostname: redis-commander
+    restart: always
+    environment:
+      REDIS_HOSTS: local:redis:${REDIS_PORT}
+    ports:
+      - "8081:8081"
+    networks:
+      - redis-network
+
+
+
+
+networks:
+  redis-network:
+    driver: bridge
+
+volumes:
+  redis:
+  redis-config:
+  postgres-data:

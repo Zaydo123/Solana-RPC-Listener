@@ -51,7 +51,13 @@ class BaseSubscriptionHandler:
 
     async def connect_websocket(self):
         print(f"Connecting to {self.url}")
-        return await connect(self.url)
+        try:
+            return await connect(self.url)
+        except Exception as e:
+            print(f"{Fore.RED}[Error]: {e}")
+            time.sleep(1)
+            print("Retrying...")
+            await self.connect_websocket()
 
     async def subscribe(self, websocket, subscription_type, pubkey=None, filter=None):
         self.request_counter += 1
@@ -101,9 +107,12 @@ class LogsSubscriptionHandler(BaseSubscriptionHandler):
                         self.request_counter = 0
                         self.start_time = time.time()
 
-
         except Exception as e:
-            print(f"{Fore.RED}[Error]: {e}")
+            print(e.with_traceback(None))
+            print("Error in listen, reconnecting...")
+            await self.connect_websocket()
+            await self.listen(callback)
+
 
 async def ec2(msg, client):
     if msg["result"]["value"]["err"]:
@@ -136,9 +145,40 @@ async def token_meta_from_transaction(client,transaction_signature: Signature):
         time.sleep(1)
         await token_meta_from_transaction(client,transaction_signature)
 
+class ProgramSubscriptionHandler(BaseSubscriptionHandler):
+    def __init__(self, url, pubkey):
+        super().__init__(url)
+        self.pubkey = pubkey
+
+    async def listen(self, callback):
+        websocket = await self.connect_websocket()
+        await self.subscribe(websocket, "program", pubkey=self.pubkey)
+        try:
+            while True:
+                next_resp = await websocket.recv()
+                if next_resp:
+                    await callback(json.loads(next_resp[0].to_json()))
+                    self.request_counter += 1
+                    elapsed_time = time.time() - self.start_time
+                    if elapsed_time >= 5:
+                        print(f"RPS: {self.request_counter / elapsed_time}")
+                        self.request_counter = 0
+                        self.start_time = time.time()
+
+        except Exception as e:
+            print(e.with_traceback(None))
+            print("Error in listen, reconnecting...")
+            await self.connect_websocket()
+            time.sleep(1)
+            await self.listen(callback)
 
 
 pk = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 #urls = {"rpc" : "ws://127.0.0.1:8900", "http" : "http://127.0.0.1:8899"}
-urls = "wss://api.mainnet-beta.solana.com"
-asyncio.run(LogsSubscriptionHandler(urls, filter=RpcTransactionLogsFilterMentions(pk)).listen(ec2))
+urls = {"rpc" : "ws://api.mainnet-beta.solana.com", "http" : "https://api.mainnet-beta.solana.com"}
+
+
+#urls = "wss://api.mainnet-beta.solana.com"
+#asyncio.run(LogsSubscriptionHandler(urls, filter=RpcTransactionLogsFilterMentions(pk)).listen(ec2))
+
+asyncio.run(ProgramSubscriptionHandler(urls, pk).listen(ec3))
