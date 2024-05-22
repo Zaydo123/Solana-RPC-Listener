@@ -63,7 +63,7 @@ async def callback_raydium(ctx: AsyncClient, data: dict):
                 token2Address = accounts[9]
                 logging.info(f"New Pool Created: {token1Address} - {token2Address}")
 
-            r.publish("pairs", json.loads({"token1": token1Address, "token2": token2Address}))
+            r.publish("pairs", str({"token1": token1Address, "token2": token2Address}))
             return
         
 asyncio.run(ProgramSubscriptionHandler({"rpc":"wss://api.mainnet-beta.solana.com", "http":"https://api.mainnet-beta.solana.com"}, RAYDIUM_PUBLIC_KEY).listen(callback_raydium))
