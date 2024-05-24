@@ -1,6 +1,6 @@
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.websocket_api import connect
-from solders.signature import Signature  # type: ignore
+from solders.signature import Signature
 from colorama import Fore, init
 import json
 import time
@@ -9,8 +9,7 @@ import logging
 init(autoreset=True)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
+logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s')
 class BaseSubscriptionHandler:
     def __init__(self, url, commitment="confirmed", encoding="jsonParsed"):
         if isinstance(url, dict):
@@ -81,8 +80,8 @@ class BaseSubscriptionHandler:
     def _update_request_counter(self):
         self.request_counter += 1
         elapsed_time = time.time() - self.start_time
-        if elapsed_time >= 5:
-            logging.info(f"RPS: {self.request_counter / elapsed_time}")
+        if elapsed_time >= 10:
+            logging.info(f"RPS: {round(self.request_counter / elapsed_time)}")
             self.request_counter = 0
             self.start_time = time.time()
 

@@ -1,0 +1,7 @@
+[project]
+name = "solana_project"
+version = "0.1.0"
+description = "My 'small' Solana project"
+
+[tool.setuptools]
+py-modules = []

@@ -1,20 +1,18 @@
-from classes import LogsSubscriptionHandler, Helpers, ProgramSubscriptionHandler
-from solders.rpc.config import RpcTransactionLogsFilterMentions
+from classes import Helpers, ProgramSubscriptionHandler
 from solders.signature import Signature
 from solders.pubkey import Pubkey
-from colorama import Fore, init
 from solana.rpc.async_api import AsyncClient
 from dotenv import load_dotenv, find_dotenv
-import json, time, os, urllib3, asyncio
+import json, os, asyncio
 from threading import Thread
-from queue import Queue
+import logging, colorama
+from colorama import Fore, Back, init
 from redis import Redis
-import logging, base58
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 init(autoreset=True)
-load_dotenv(find_dotenv(".env"))
 
+logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s')
+load_dotenv(find_dotenv(".env"))
 
 TOKEN_PROGRAM_PUBLIC_KEY = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 RAYDIUM_PUBLIC_KEY = Pubkey.from_string("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")
@@ -61,9 +59,13 @@ async def callback_raydium(ctx: AsyncClient, data: dict):
             else:
                 token1Address = accounts[8]
                 token2Address = accounts[9]
-                logging.info(f"New Pool Created: {token1Address} - {token2Address}")
+                if token2Address == "So11111111111111111111111111111111111111112":
+                    logging.info(f"{Back.YELLOW}New LP{Back.RESET}: {token1Address} - Wrapped SOL")
+                else:
+                    logging.info(f"{Back.YELLOW}New LP{Back.RESET}: {token1Address} - {token2Address}")
 
             r.publish("pairs", str({"token1": token1Address, "token2": token2Address}))
             return
         
-asyncio.run(ProgramSubscriptionHandler({"rpc":"wss://api.mainnet-beta.solana.com", "http":"https://api.mainnet-beta.solana.com"}, RAYDIUM_PUBLIC_KEY).listen(callback_raydium))
+asyncio.run(ProgramSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER"), "http":os.environ.get("HTTP_PROVIDER")}, RAYDIUM_PUBLIC_KEY).listen(callback_raydium))
+)
