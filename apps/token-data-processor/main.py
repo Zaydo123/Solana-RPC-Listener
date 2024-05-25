@@ -18,6 +18,7 @@ logging.info("Booting up...")
 p = None
 r = None
 
+
 def listen_for_new_pairs():
     while True:
         try:

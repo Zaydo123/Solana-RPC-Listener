@@ -47,6 +47,7 @@ async def callback_raydium(ctx: AsyncClient, data: dict):
             parsed_tx = json.loads(transaction.to_json())
 
             accounts = []
+
             for instruction in parsed_tx["result"]["transaction"]["message"]["instructions"]:
                 if instruction["programId"] == RAYDIUM_PUBLIC_KEY_STRING:
                     accounts = instruction["accounts"]
@@ -64,8 +65,7 @@ async def callback_raydium(ctx: AsyncClient, data: dict):
                 else:
                     logging.info(f"{Back.YELLOW}New LP{Back.RESET}: {token1Address} - {token2Address}")
 
-            r.publish("pairs", str({"token1": token1Address, "token2": token2Address}))
+            r.publish("pairs", str({"token1": token1Address, "token2": token2Address, "sig": signature.to_string(), "full_tx": parsed_tx}))
             return
         
 asyncio.run(ProgramSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER"), "http":os.environ.get("HTTP_PROVIDER")}, RAYDIUM_PUBLIC_KEY).listen(callback_raydium))
-)
