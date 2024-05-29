@@ -1,4 +1,4 @@
-from classes import Helpers, ProgramSubscriptionHandler
+from classes import Helpers, LogsSubscriptionHandler
 from solders.signature import Signature
 from solders.pubkey import Pubkey
 from solana.rpc.async_api import AsyncClient
@@ -15,8 +15,8 @@ logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RE
 load_dotenv(find_dotenv(".env"))
 
 TOKEN_PROGRAM_PUBLIC_KEY = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-RAYDIUM_PUBLIC_KEY = Pubkey.from_string("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")
 RAYDIUM_PUBLIC_KEY_STRING = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+RAYDIUM_PUBLIC_KEY = Pubkey.from_string(RAYDIUM_PUBLIC_KEY_STRING)
 
 #r = Redis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), db=os.getenv("REDIS_DB"), password=os.getenv("REDIS_PASSWORD"), decode_responses=True) - for password protected redis
 r = Redis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), db=os.getenv("REDIS_DB"), decode_responses=True)
@@ -27,7 +27,10 @@ for channel in open_channels:
     r.publish(channel, ":producerConnected")
 
 
-async def callback_raydium(ctx: AsyncClient, data: dict):
+last_sig = None
+
+async def callback_raydium(ctx: AsyncClient, data: str):
+    global last_sig
     json_data = json.loads(data)
     for log in json_data["result"]["value"]["logs"]:
         if "initialize2" in log:
@@ -35,7 +38,14 @@ async def callback_raydium(ctx: AsyncClient, data: dict):
             if json_data["result"]["value"]["err"] != None: 
                 return
             
-            json_data["result"]["value"]["signature"]
+            sig_string = json_data["result"]["value"]["signature"]
+            
+            if sig_string == last_sig:
+                logging.info("Duplicate signature")
+                return
+
+            last_sig = sig_string
+            
             signature = Signature.from_string(json_data["result"]["value"]["signature"])
             try:
                 transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment="confirmed",encoding="jsonParsed")
@@ -44,28 +54,30 @@ async def callback_raydium(ctx: AsyncClient, data: dict):
                 logging.error(f"Error fetching transaction: {e}")
                 return
             
-            parsed_tx = json.loads(transaction.to_json())
+            tx_str = transaction.to_json()
+            parsed_tx = json.loads(tx_str)
 
             accounts = []
 
             for instruction in parsed_tx["result"]["transaction"]["message"]["instructions"]:
                 if instruction["programId"] == RAYDIUM_PUBLIC_KEY_STRING:
                     accounts = instruction["accounts"]
-                    logging.info(True)
                     break
-                
+
             if len(accounts) == 0:
                 logging.info("No accounts found")
                 return
             else:
-                token1Address = accounts[8]
-                token2Address = accounts[9]
-                if token2Address == "So11111111111111111111111111111111111111112":
-                    logging.info(f"{Back.YELLOW}New LP{Back.RESET}: {token1Address} - Wrapped SOL")
-                else:
-                    logging.info(f"{Back.YELLOW}New LP{Back.RESET}: {token1Address} - {token2Address}")
+                base = accounts[8]
+                quote = accounts[9]
+                base_pool_account = accounts[10]
+                quote_pool_account = accounts[11]
+                logging.info(f"{Fore.GREEN}New pair found: {base} - {quote}{Fore.RESET}")
 
-            r.publish("pairs", str({"token1": token1Address, "token2": token2Address, "sig": signature.to_string(), "full_tx": parsed_tx}))
+
+            data = {"baseToken": base, "quoteToken": quote, "sig": sig_string, "full_tx": tx_str}
+            r.publish("pairs", json.dumps(data))
             return
-        
-asyncio.run(ProgramSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER"), "http":os.environ.get("HTTP_PROVIDER")}, RAYDIUM_PUBLIC_KEY).listen(callback_raydium))
+
+asyncio.run(LogsSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER"), "http":os.environ.get("HTTP_PROVIDER")}).listen(callback_raydium))
+

@@ -10,18 +10,14 @@ init(autoreset=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s')
+
 class BaseSubscriptionHandler:
     def __init__(self, url, commitment="confirmed", encoding="jsonParsed"):
-        if isinstance(url, dict):
-            self.url = url["rpc"]
-            self.url_2 = url["http"]
-        else:
-            self.url = url
-            self.url_2 = None
-
+        self.url = url["rpc"] if isinstance(url, dict) else url
+        self.url_2 = url.get("http") if isinstance(url, dict) else None
         self.commitment = commitment
         self.encoding = encoding
-        self.async_client = AsyncClient(url)
+        self.async_client = AsyncClient(self.url)
         self.async_client_2 = AsyncClient(self.url_2) if self.url_2 else None
         self.subscription_id = None
         self.start_time = time.time()
@@ -29,14 +25,14 @@ class BaseSubscriptionHandler:
 
     async def connect_websocket(self):
         logging.info(f"Connecting to {self.url}")
-        try:
-            return await connect(self.url)
-        except Exception as e:
-            logging.error(f"Error connecting to websocket: {e}")
-            time.sleep(1)
-            return await self.connect_websocket()
+        while True:
+            try:
+                return await connect(self.url)
+            except Exception as e:
+                logging.error(f"Error connecting to websocket: {e}")
+                time.sleep(1)
 
-    async def subscribe(self, websocket, subscription_type, pubkey=None, filter=None):
+    async def subscribe(self, websocket, filter=None):
         self.request_counter += 1
         elapsed_time = time.time() - self.start_time
 
@@ -45,12 +41,12 @@ class BaseSubscriptionHandler:
             self.request_counter = 0
             self.start_time = time.time()
 
-        if filter is not None:
+        if filter:
             await websocket.logs_subscribe(filter)
             logging.info("Subscribing to logs with filter")
         else:
-            logging.info("Subscribing to logs without filter")
             await websocket.logs_subscribe()
+            logging.info("Subscribing to logs without filter")
 
         first_resp = await websocket.recv()
         self.subscription_id = first_resp[0].result
@@ -61,30 +57,29 @@ class BaseSubscriptionHandler:
         await websocket.logs_unsubscribe(self.subscription_id)
 
     async def _listen_loop(self, websocket, callback):
+        client = self.async_client_2 or self.async_client
         try:
             while True:
                 next_resp = await websocket.recv()
                 if next_resp:
-                    client = self.async_client_2 if self.async_client_2 else self.async_client
-                    await callback(client,next_resp[0].to_json())
+                    await callback(client, next_resp[0].to_json())
                     self._update_request_counter()
         except Exception as e:
-            logging.error(f"Error in listen/callback : {e}")
+            logging.error(f"Error in listen/callback: {e}")
             await self._reconnect_and_listen(callback)
 
     async def _reconnect_and_listen(self, callback):
         logging.info("Reconnecting...")
-        time.sleep(1)
+        time.sleep(3)
         await self.listen(callback)
 
     def _update_request_counter(self):
         self.request_counter += 1
         elapsed_time = time.time() - self.start_time
-        if elapsed_time >= 10:
+        if elapsed_time >= 5:
             logging.info(f"RPS: {round(self.request_counter / elapsed_time)}")
             self.request_counter = 0
             self.start_time = time.time()
-
 
 class LogsSubscriptionHandler(BaseSubscriptionHandler):
     def __init__(self, url, filter=None):
@@ -93,35 +88,23 @@ class LogsSubscriptionHandler(BaseSubscriptionHandler):
 
     async def listen(self, callback):
         websocket = await self.connect_websocket()
-        await self.subscribe(websocket, "logs", filter=self.filter)
-        await self._listen_loop(websocket, callback)
-
-
-class ProgramSubscriptionHandler(BaseSubscriptionHandler):
-    def __init__(self, url, pubkey):
-        super().__init__(url)
-        self.pubkey = pubkey
-
-    async def listen(self, callback):
-        websocket = await self.connect_websocket()
-        await self.subscribe(websocket, "program", pubkey=self.pubkey)
+        await self.subscribe(websocket, filter=self.filter)
         await self._listen_loop(websocket, callback)
 
 class Helpers:
     @staticmethod
     async def token_meta_from_transaction(client, transaction_signature: Signature):
-        data = {}
         try:
             res = await client.get_transaction(transaction_signature, max_supported_transaction_version=1)
             res = json.loads(res.value.to_json())
             post_token_balances = res.get("meta", {}).get("postTokenBalances", [])
-            for balance in post_token_balances:
-                data["token_address"] = balance.get("mint")
-                data["owner"] = balance.get("owner")
-                data["initial_supply"] = balance.get("uiTokenAmount", {}).get("amount")
-                data["decimals"] = balance.get("uiTokenAmount", {}).get("decimals")
-                data["mint"] = balance.get("mint")
-                logging.info(data)
+            data = [{
+                "token_address": balance.get("mint"),
+                "owner": balance.get("owner"),
+                "initial_supply": balance.get("uiTokenAmount", {}).get("amount"),
+                "decimals": balance.get("uiTokenAmount", {}).get("decimals"),
+                "mint": balance.get("mint")
+            } for balance in post_token_balances]
             return data
         except Exception as e:
             logging.error(f"Error fetching token meta: {e}, retrying...")
