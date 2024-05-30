@@ -9,6 +9,8 @@ import logging, colorama
 from colorama import Fore, Back, init
 from redis import Redis
 
+from solders.rpc.config import RpcTransactionLogsFilterMentions
+
 init(autoreset=True)
 
 logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s')
@@ -24,8 +26,7 @@ open_channels = r.pubsub_channels()
 
 for channel in open_channels:
     logging.info(f"Consumers in channel: {channel}")
-    r.publish(channel, ":producerConnected")
-
+    r.publish(channel, '{"message": "[>] Hello from the transaction listener"}')
 
 last_sig = None
 
@@ -75,9 +76,11 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                 logging.info(f"{Fore.GREEN}New pair found: {base} - {quote}{Fore.RESET}")
 
 
-            data = {"baseToken": base, "quoteToken": quote, "sig": sig_string, "full_tx": tx_str}
+            data = {"message":"new pair","baseToken": base, "quoteToken": quote, "sig": sig_string, "full_tx": tx_str}
             r.publish("pairs", json.dumps(data))
             return
+        
 
-asyncio.run(LogsSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER"), "http":os.environ.get("HTTP_PROVIDER")}).listen(callback_raydium))
+filter = RpcTransactionLogsFilterMentions(RAYDIUM_PUBLIC_KEY)
+asyncio.run(LogsSubscriptionHandler({"rpc":os.environ.get("WSS_MAINNET"), "http":os.environ.get("HTTP_PROVIDER")},filter=filter).listen(callback_raydium))
 

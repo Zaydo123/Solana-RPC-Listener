@@ -10,3 +10,4 @@ build/
 egg-info/
 *.egg-info
 ignore-lab
+__test.py

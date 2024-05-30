@@ -6,19 +6,19 @@ from colorama import Fore, Back, init
 from solders.pubkey import Pubkey
 from threading import Thread
 import json, os, asyncio
-from time import sleep
+from time import sleep, time
 from redis import Redis, ConnectionError
 import logging, sys
 import traceback
 
 init(autoreset=True)
-logging.basicConfig(level=logging.INFO, format=f'{Fore.LIGHTRED_EX}[Processor]{Fore.RESET} %(asctime)s %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format=f'{Fore.LIGHTRED_EX}[Processor]{Fore.RESET} %(asctime)s %(levelname)s - %(message)s', datefmt='%H:%M:%S')
 load_dotenv(find_dotenv(".env"))
 logging.info("Booting up...")
 
-    
-
 client = AsyncClient(os.getenv("WSS_PROVIDER"))
+WRAPPED_SOL_PUBKEY_STRING = "So11111111111111111111111111111111111111112"
+RAYDIUM_PUBLIC_KEY_STRING = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 
 p = None
 r = None
@@ -39,15 +39,16 @@ class Token:
         self.top_owners = {}
 
     async def get_info(self, commitment="confirmed"): # symbol is yet to be implemented
-        
+
         rpc_data = await client.get_account_info_json_parsed(Pubkey.from_string(self.pubkey), commitment=commitment)
         rpc_data = json.loads(rpc_data.to_json())
         self.owner_address = rpc_data["result"]["value"]["owner"]
         self.freeze_authority = rpc_data["result"]["value"]["data"]["parsed"]["info"]["freezeAuthority"]
         self.mint_authority = rpc_data["result"]["value"]["data"]["parsed"]["info"]["mintAuthority"]
-        self.supply = rpc_data["result"]["value"]["data"]["parsed"]["info"]["supply"]
-        self.decimals = rpc_data["result"]["value"]["data"]["parsed"]["info"]["decimals"]
-        self.real_supply = int(self.supply[0:len(self.supply)-self.decimals])
+        self.supply_str = rpc_data["result"]["value"]["data"]["parsed"]["info"]["supply"]
+        self.supply = int(self.supply_str)
+        self.decimals = int(rpc_data["result"]["value"]["data"]["parsed"]["info"]["decimals"])
+        self.real_supply = int(self.supply_str[0:len(self.supply_str)-self.decimals]) if self.supply > 0 else 0
         self.is_initialized = rpc_data["result"]["value"]["data"]["parsed"]["info"]["isInitialized"]
 
         largest_accounts_req = await client.get_token_largest_accounts(Pubkey.from_string(self.pubkey), commitment=commitment)
@@ -57,7 +58,7 @@ class Token:
         num_largest_accounts = 0
 
         for account in largest_accounts:
-            percent_owned_by_account = float(account["uiAmountString"]) / float(self.real_supply)
+            percent_owned_by_account = float(account["uiAmountString"]) / self.real_supply
             num_largest_accounts += 1
             percent_owned_by_largest_accounts += percent_owned_by_account
             self.top_owners[account["address"]] = percent_owned_by_account
@@ -65,13 +66,15 @@ class Token:
         self.top_ownership_percent = percent_owned_by_largest_accounts
         return self
 
+    def to_json(self):
+        return json.dumps(self, default=lambda o: o.__dict__)
+
     def __str__(self):
         return f"Token: {self.symbol} - Supply: {self.supply} - Decimals: {self.decimals} - Real Supply: {self.real_supply} - Is Initialized: {self.is_initialized} - Top Ownership Percent: {self.top_ownership_percent} - Top Owners: {self.top_owners}"
     
     def __repr__(self):
         return self.__str__()
     
-
 
 class Pair:
     def __init__(self, base_token=None, quote_token=None, base_pool_account=None, quote_pool_account=None, accounts=None):
@@ -102,6 +105,46 @@ class Pair:
     async def get_base_token_price(self, commitment="finalized"):
         return await self.get_token_price(self.quote_pool_account, self.base_pool_account, commitment)
 
+#----------------- Token Price Task  -----------------#
+# follows the price of a pair and sets the price of the pubkey in the redis db and in pubsub until timelimit is reached
+
+async def token_price_task(base_address,quote_address, interval=5, timelimit=60):
+    start_time = time()
+    while time() - start_time < timelimit:
+        try:
+            base_price = await Pair.get_token_price(base_address, quote_address)
+            r.set(f"{base_address}-{quote_address}", base_price)
+            r.publish("prices", json.dumps({"base": base_address, "quote": quote_address, "price": base_price}))
+            logging.info(f"Price of {base_address} - {quote_address}: {base_price}")
+            sleep(interval)
+        except Exception as e:
+            logging.error(f"Error in token price task: {e}")
+            sleep(5)
+
+
+async def new_pair_task(json_data):
+    try:
+        token = await Token(json_data["baseToken"]).get_info()
+        r.set(f"{json_data['baseToken']}-info", token.to_json())
+        r.publish("parsed_tokens", token.to_json())
+        logging.info(f"Token info: {token}")
+        try:
+
+            accounts = json.loads(json_data["full_tx"])
+            print(json_data)
+
+            for instruction in accounts["result"]["transaction"]["message"]["instructions"]:
+                if instruction["programId"] == RAYDIUM_PUBLIC_KEY_STRING:
+                    accounts = instruction["accounts"]
+
+            await asyncio.create_task(token_price_task(accounts[10],accounts[11]))
+        except Exception as e:
+            logging.error(f"Error creating token price task: {traceback.format_exc()}")
+        
+    except Exception as e:
+        logging.error(f"Error in new pair task: {traceback.format_exc()}")
+
+
 async def listen_for_new_pairs():
     while True:
         try:
@@ -109,9 +152,15 @@ async def listen_for_new_pairs():
             for message in p.listen():
                 if message["type"] != "message" or message["channel"] != "pairs":
                     continue
-                print(type(message["data"]))
                 json_data = json.loads(message["data"])
-                print(await Token(json_data["baseToken"]).get_info())
+                if json_data["message"].startswith("[>]"):
+                    continue # ignore messages from the processor
+                if json_data["baseToken"] != WRAPPED_SOL_PUBKEY_STRING:
+                    await new_pair_task(json_data)
+                else:
+                    logging.info(f"Skipping wrapped sol pair")
+                    
+
         except (ConnectionError, Exception) as e:
             #use traceback to get more info on the error
             logging.error(f"Error listening for new pairs: {e}")
@@ -155,3 +204,4 @@ connect_redis()
 
 while True:
     sleep(1)
+

@@ -9,7 +9,7 @@ import logging
 init(autoreset=True)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
 
 class BaseSubscriptionHandler:
     def __init__(self, url, commitment="confirmed", encoding="jsonParsed"):
