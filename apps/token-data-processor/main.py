@@ -108,14 +108,14 @@ class Pair:
 #----------------- Token Price Task  -----------------#
 # follows the price of a pair and sets the price of the pubkey in the redis db and in pubsub until timelimit is reached
 
-async def token_price_task(base_address,quote_address, interval=5, timelimit=60):
+async def token_price_task(base_token,quote_token,base_address,quote_address, interval=1, timelimit=60):
     start_time = time()
     while time() - start_time < timelimit:
         try:
             base_price = await Pair.get_token_price(base_address, quote_address)
             r.set(f"{base_address}-{quote_address}", base_price)
-            r.publish("prices", json.dumps({"base": base_address, "quote": quote_address, "price": base_price}))
-            logging.info(f"Price of {base_address} - {quote_address}: {base_price}")
+            r.publish("prices", json.dumps({"base": base_token, "quote": quote_token, "price": base_price}))
+            logging.info(f"{Fore.GREEN}Price of {base_token} - {quote_token}: {base_price}{Fore.RESET}")
             sleep(interval)
         except Exception as e:
             logging.error(f"Error in token price task: {e}")
@@ -137,7 +137,7 @@ async def new_pair_task(json_data):
                 if instruction["programId"] == RAYDIUM_PUBLIC_KEY_STRING:
                     accounts = instruction["accounts"]
 
-            await asyncio.create_task(token_price_task(accounts[10],accounts[11]))
+            await asyncio.create_task(token_price_task(json_data["baseToken"],json_data["quoteToken"],accounts[10],accounts[11]))
         except Exception as e:
             logging.error(f"Error creating token price task: {traceback.format_exc()}")
         

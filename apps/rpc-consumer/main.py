@@ -35,7 +35,7 @@ async def callback_raydium(ctx: AsyncClient, data: str):
     json_data = json.loads(data)
     for log in json_data["result"]["value"]["logs"]:
         if "initialize2" in log:
-
+            
             if json_data["result"]["value"]["err"] != None: 
                 return
             
@@ -71,8 +71,6 @@ async def callback_raydium(ctx: AsyncClient, data: str):
             else:
                 base = accounts[8]
                 quote = accounts[9]
-                base_pool_account = accounts[10]
-                quote_pool_account = accounts[11]
                 logging.info(f"{Fore.GREEN}New pair found: {base} - {quote}{Fore.RESET}")
 
 
