@@ -2,14 +2,13 @@ from solana.rpc.async_api import AsyncClient
 from solana.rpc.websocket_api import connect
 from solders.signature import Signature
 from colorama import Fore, init
-import json
-import time
-import logging
+import json, time, logging, traceback, asyncio
 
 init(autoreset=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
+logging.getLogger("urllib").setLevel(logging.WARNING)
 
 class BaseSubscriptionHandler:
     def __init__(self, url, commitment="confirmed", encoding="jsonParsed"):
@@ -65,13 +64,23 @@ class BaseSubscriptionHandler:
                     await callback(client, next_resp[0].to_json())
                     self._update_request_counter()
         except Exception as e:
-            logging.error(f"Error in listen/callback: {e}")
+            logging.error(f"Error in listen/callback: {traceback.format_exc()}")
             await self._reconnect_and_listen(callback)
 
     async def _reconnect_and_listen(self, callback):
-        logging.info("Reconnecting...")
-        time.sleep(3)
-        await self.listen(callback)
+        retry_count = 0
+        max_retries = 5
+        while retry_count < max_retries:
+            logging.info("Reconnecting...")
+            await asyncio.sleep(3)  # Incremental back-off can be implemented here
+            try:
+                await self.listen(callback)
+                break
+            except Exception as e:
+                logging.error(f"Attempt {retry_count + 1} failed: {traceback.format_exc()}")
+                retry_count += 1
+        if retry_count == max_retries:
+            logging.error("Max retries reached, stopping reconnection attempts.")
 
     def _update_request_counter(self):
         self.request_counter += 1
@@ -87,26 +96,11 @@ class LogsSubscriptionHandler(BaseSubscriptionHandler):
         self.filter = filter
 
     async def listen(self, callback):
-        websocket = await self.connect_websocket()
-        await self.subscribe(websocket, filter=self.filter)
-        await self._listen_loop(websocket, callback)
-
-class Helpers:
-    @staticmethod
-    async def token_meta_from_transaction(client, transaction_signature: Signature):
-        try:
-            res = await client.get_transaction(transaction_signature, max_supported_transaction_version=1)
-            res = json.loads(res.value.to_json())
-            post_token_balances = res.get("meta", {}).get("postTokenBalances", [])
-            data = [{
-                "token_address": balance.get("mint"),
-                "owner": balance.get("owner"),
-                "initial_supply": balance.get("uiTokenAmount", {}).get("amount"),
-                "decimals": balance.get("uiTokenAmount", {}).get("decimals"),
-                "mint": balance.get("mint")
-            } for balance in post_token_balances]
-            return data
-        except Exception as e:
-            logging.error(f"Error fetching token meta: {e}, retrying...")
-            time.sleep(1)
-            return await Helpers.token_meta_from_transaction(client, transaction_signature)
+        while True:
+            websocket = await self.connect_websocket()
+            try:
+                await self.subscribe(websocket, filter=self.filter)
+                await self._listen_loop(websocket, callback)
+            except Exception as e:
+                logging.error(f"Error in listen loop: {traceback.format_exc()}")
+                await self._reconnect_and_listen(callback)

@@ -13,12 +13,17 @@ import traceback
 
 init(autoreset=True)
 logging.basicConfig(level=logging.INFO, format=f'{Fore.LIGHTRED_EX}[Processor]{Fore.RESET} %(asctime)s %(levelname)s - %(message)s', datefmt='%H:%M:%S')
+logging.getLogger("solana").setLevel(logging.WARNING)
+
 load_dotenv(find_dotenv(".env"))
 logging.info("Booting up...")
 
 client = AsyncClient(os.getenv("WSS_PROVIDER"))
 WRAPPED_SOL_PUBKEY_STRING = "So11111111111111111111111111111111111111112"
 RAYDIUM_PUBLIC_KEY_STRING = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+PARSED_PAIRS_CHANNEL = os.getenv("REDIS_PARSED_PAIRS_CHANNEL")
+PRICES_CHANNEL = os.getenv("REDIS_PRICES_CHANNEL")
+NEW_PAIRS_CHANNEL = os.getenv("REDIS_NEW_PAIRS_CHANNEL")
 
 p = None
 r = None
@@ -39,7 +44,6 @@ class Token:
         self.top_owners = {}
 
     async def get_info(self, commitment="confirmed"): # symbol is yet to be implemented
-
         rpc_data = await client.get_account_info_json_parsed(Pubkey.from_string(self.pubkey), commitment=commitment)
         rpc_data = json.loads(rpc_data.to_json())
         self.owner_address = rpc_data["result"]["value"]["owner"]
@@ -50,6 +54,8 @@ class Token:
         self.decimals = int(rpc_data["result"]["value"]["data"]["parsed"]["info"]["decimals"])
         self.real_supply = int(self.supply_str[0:len(self.supply_str)-self.decimals]) if self.supply > 0 else 0
         self.is_initialized = rpc_data["result"]["value"]["data"]["parsed"]["info"]["isInitialized"]
+
+        logging.info(rpc_data["result"]["value"])
 
         largest_accounts_req = await client.get_token_largest_accounts(Pubkey.from_string(self.pubkey), commitment=commitment)
         largest_accounts = json.loads(largest_accounts_req.to_json())
@@ -97,7 +103,7 @@ class Pair:
     async def get_token_price(base_pool_account, quote_pool_account, commitment="finalized"):
         bal_base_pool = await Pair.get_token_account_balance(base_pool_account, commitment)
         bal_quote_pool = await Pair.get_token_account_balance(quote_pool_account, commitment)
-        return float(bal_quote_pool) / float(bal_base_pool)
+        return {"price":float(bal_quote_pool) / float(bal_base_pool), "base_pooled_balance": bal_base_pool, "quote_pooled_balance": bal_quote_pool}
     
     async def get_quote_token_price(self, commitment="finalized"):
         return await self.get_token_price(self.base_pool_account, self.quote_pool_account, commitment)
@@ -108,14 +114,17 @@ class Pair:
 #----------------- Token Price Task  -----------------#
 # follows the price of a pair and sets the price of the pubkey in the redis db and in pubsub until timelimit is reached
 
-async def token_price_task(base_token,quote_token,base_address,quote_address, interval=1, timelimit=60):
+async def token_price_task(base_token,quote_token,base_address,quote_address, interval=5, timelimit=60):
     start_time = time()
     while time() - start_time < timelimit:
         try:
-            base_price = await Pair.get_token_price(base_address, quote_address)
+            pair_info = await Pair.get_token_price(base_address, quote_address)
+            base_price = pair_info["price"]
+            base_pool_balance = pair_info["base_pooled_balance"]
+            quote_pool_balance = pair_info["quote_pooled_balance"]
             r.set(f"{base_address}-{quote_address}", base_price)
-            r.publish("prices", json.dumps({"base": base_token, "quote": quote_token, "price": base_price}))
-            logging.info(f"{Fore.GREEN}Price of {base_token} - {quote_token}: {base_price}{Fore.RESET}")
+            r.publish(PRICES_CHANNEL, json.dumps({"timestamp": int(time()), "base": base_token, "quote": quote_token, "base_pooled_balance": base_pool_balance, "quote_pooled_balance": quote_pool_balance,  "base_price": base_price }))
+            logging.info(f"{Fore.GREEN}{base_price}{Fore.RESET}")
             sleep(interval)
         except Exception as e:
             logging.error(f"Error in token price task: {e}")
@@ -126,7 +135,7 @@ async def new_pair_task(json_data):
     try:
         token = await Token(json_data["baseToken"]).get_info()
         r.set(f"{json_data['baseToken']}-info", token.to_json())
-        r.publish("parsed_tokens", token.to_json())
+        r.publish(PARSED_PAIRS_CHANNEL, token.to_json())
         logging.info(f"Token info: {token}")
         try:
 
@@ -148,9 +157,9 @@ async def new_pair_task(json_data):
 async def listen_for_new_pairs():
     while True:
         try:
-            p.subscribe("pairs")
+            p.subscribe(NEW_PAIRS_CHANNEL)
             for message in p.listen():
-                if message["type"] != "message" or message["channel"] != "pairs":
+                if message["type"] != "message":
                     continue
                 json_data = json.loads(message["data"])
                 if json_data["message"].startswith("[>]"):
