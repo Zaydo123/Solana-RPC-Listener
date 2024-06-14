@@ -11,3 +11,4 @@ egg-info/
 *.egg-info
 ignore-lab
 __test.py
+ignore.*

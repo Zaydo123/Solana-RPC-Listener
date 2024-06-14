@@ -1,5 +1,5 @@
 from solders.rpc.config import RpcTransactionLogsFilterMentions
-from classes import LogsSubscriptionHandler
+from classes import LogsSubscriptionHandler, Transaction, DecimalEncoder
 from solders.signature import Signature
 from solders.pubkey import Pubkey
 from decimal import Decimal, getcontext
@@ -42,30 +42,20 @@ subscriptions = {}
 #CaShxDq2Vbdp2XryjDdUZthbTzwYsvKuH6Knn9pPi4xU - burn address
 # has a lot of problems fetching transactions with many transfers - e.g. with bonk bot
 
-class DecimalEncoder(json.JSONEncoder):
-    def encode(self, obj):
-        if isinstance(obj, Mapping):
-            return '{' + ', '.join(f'{self.encode(k)}: {self.encode(v)}' for (k, v) in obj.items()) + '}'
-        if isinstance(obj, Iterable) and (not isinstance(obj, str)):
-            return '[' + ', '.join(map(self.encode, obj)) + ']'
-        if isinstance(obj, Decimal):
-            return f'{obj.normalize():f}'  # using normalize() gets rid of trailing 0s, using ':f' prevents scientific notation
-        return super().encode(obj)
 
-def detect_key_transaction(pre_balances, post_balances, amm_address):
+def detect_transactions(pre_balances, post_balances, amm_address):
     balance_changes = {}
 
-    # initialize bals
+    # Initialize and update balances
     for entry in pre_balances:
         pubkey = entry['accountIndex']
         balance_changes[pubkey] = {
             'pre_balance': Decimal(entry['uiTokenAmount']['uiAmountString']),
-            'post_balance': None,  # To be updated
+            'post_balance': Decimal('0'),  # Initialize to zero, update later
             'owner': entry['owner'],
             'mint': entry['mint']
         }
 
-    # update post bals
     for entry in post_balances:
         pubkey = entry['accountIndex']
         if pubkey in balance_changes:
@@ -78,41 +68,21 @@ def detect_key_transaction(pre_balances, post_balances, amm_address):
                 'mint': entry['mint']
             }
 
-    # process txs
-    sells = []
-    buys = []
+    # Collect transactions and convert Decimal to float for JSON serialization
+    transactions = []
     for changes in balance_changes.values():
-        if changes['post_balance'] is None:
-            changes['post_balance'] = 0  # Assume zero if no post balance
         change = changes['post_balance'] - changes['pre_balance']
-        if change != 0 and changes['owner'] != amm_address:
-            transaction_type = "buy" if change > 0 else "sell"
-            transaction = {
+        if change != 0:
+            transactions.append({
                 "account_owner": changes['owner'],
-                "transaction_type": transaction_type,
-                "token_amount": abs(change),
-                "token_mint": changes['mint']
-            }
-            if transaction_type == "sell":
-                sells.append(transaction)
-            else:
-                buys.append(transaction)
+                "transaction_type": "buy" if change > 0 else "sell",
+                "amount": float(abs(change)),  # Convert Decimal to float
+                "token": changes['mint'],
+                "is_amm": changes['owner'] == amm_address
+            })
 
-    # find main tx
-    key_transaction = None
-    for sell in sells:
-        for buy in buys:
-            if sell['account_owner'] == buy['account_owner']:
-                key_transaction = {
-                    "account_owner": sell['account_owner'],
-                    "sell_amount": sell['token_amount'],
-                    "sell_mint": sell['token_mint'],
-                    "buy_amount": buy['token_amount'],
-                    "buy_mint": buy['token_mint']
-                }
-                return key_transaction  # !! Assuming one key swap per call, return early
-
-    return key_transaction
+    # Return JSON string representation
+    return transactions
 
 
 
@@ -120,27 +90,70 @@ async def swap_callback(ctx: AsyncClient, data: str):
     json_data = json.loads(data)
 
     if json_data["result"]["value"]["err"] != None:
-        print(Fore.RED + json_data["result"]["value"]["signature"] + " - Transaction failed" + Fore.RESET)
         return
     
     for log in json_data["result"]["value"]["logs"]:
         if log[0:17] == "Program log: err:":
-            print(Fore.RED + json_data["result"]["value"]["signature"] + " - Transaction failed" + Fore.RESET)
             return
-    
-    try:
-        signature = Signature.from_string(json_data["result"]["value"]["signature"])
-        transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment="confirmed",encoding="jsonParsed")
 
+    try:
+
+        signature = Signature.from_string(json_data["result"]["value"]["signature"])
+        try:
+            transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment="confirmed",encoding="jsonParsed")
+        except Exception as e:
+            logging.error(f"Error fetching transaction from RPC")
+            logging.error(traceback.format_exc() + "\n-------")
+            return
         transaction_data = json.loads(transaction.to_json())
 
         pre_token_balances = transaction_data['result']['meta']['preTokenBalances']
         post_token_balances = transaction_data['result']['meta']['postTokenBalances']
-        key_transaction = detect_key_transaction(pre_token_balances, post_token_balances, RAYDIUM_AMM_ADDRESS)
-        print(key_transaction)
-        r.publish("swaps-" + key_transaction["buy_mint"] + "-" + key_transaction["sell_mint"], json.dumps(key_transaction,cls=DecimalEncoder))
-        if key_transaction == None:
-            print(Fore.RED + json_data["result"]["value"]["signature"] + " - No key transaction found" + Fore.RESET)
+        block_time = transaction_data['result']['blockTime']
+
+        transactions = detect_transactions(pre_token_balances, post_token_balances, RAYDIUM_AMM_ADDRESS)
+
+        # Create a mapping of owner to their transactions for easy lookup
+        transaction_vectors = []
+        owner_transactions = {}
+
+
+        for tx in transactions:
+            owner = tx["account_owner"]
+            new_tx_type = "buy" if tx["transaction_type"] == "sell" else "sell"
+            transaction = Transaction(owner,new_tx_type, tx["token"], tx["amount"])
+            transaction_vectors.append(transaction)
+            if owner not in owner_transactions:
+                owner_transactions[owner] = []
+            owner_transactions[owner].append(transaction)
+
+        final_transactions = []
+
+
+        # Identify corresponding buy and sell transactions
+        for amm_tx in transaction_vectors:
+            if amm_tx.account_owner == RAYDIUM_AMM_ADDRESS:
+                for other_tx in transaction_vectors:
+                    if amm_tx.transaction_type == "sell" and other_tx.transaction_type == "buy" and amm_tx.token != other_tx.token:
+                        amm_tx.other_account = other_tx.account_owner
+                        other_tx.other_account = amm_tx.account_owner
+                        print(f"Match found: {amm_tx} <-> {other_tx}")
+                        final_transactions.append(amm_tx)
+                        final_transactions.append(other_tx)
+                        break
+        
+        if len(final_transactions) == 0:
+            logging.error("No matching transactions found\nSignature: " + str(signature))
+            return
+        
+        target_channel = "swap-"+ final_transactions[0].token + "-" + final_transactions[1].token
+        key_transaction = {
+            "block_time": block_time,
+            "action": "swap",
+            "transactions": [tx.to_json() for tx in final_transactions]
+        }
+
+        r.publish(target_channel, json.dumps(key_transaction,cls=DecimalEncoder))
 
     except Exception as e:
         logging.error(f"Error fetching transaction", traceback.format_exc())
@@ -196,7 +209,7 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                     logging.info(f"{Fore.RED}Pair already exists{Fore.RESET}")
                     return
                 elif base == WRAPPED_SOL_PUBKEY_STRING:
-                    logging.info(f"{Fore.RED}Wrapped Sol Base - Skipping...{Fore.RESET}")
+                    logging.info(f"{Fore.RED}Wrapped Sol Base - {quote} - Skipping...{Fore.RESET}")
                     return
 
                 last_base = base
@@ -208,15 +221,19 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                 r.publish(NEW_PAIRS_CHANNEL, json.dumps(data))
 
                 pool_account_filter = RpcTransactionLogsFilterMentions(Pubkey.from_string(pool_account))
-                handler_swaps = LogsSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER"), "http":os.environ.get("HTTP_PROVIDER")}, filter=pool_account_filter)
-                subscription_swaps = asyncio.create_task(handler_swaps.listen(swap_callback))
-                subscriptions["swaps-" + base + "-" + quote] = subscription_swaps
+                handler_swaps = LogsSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER_TRANSACTIONS"), "http":os.environ.get("HTTP_PROVIDER_TRANSACTIONS")}, filter=pool_account_filter)
+                subscriptions["swaps-" + base + "-" + quote] = handler_swaps
+                asyncio.create_task(handler_swaps.listen(swap_callback))
+                print(Back.CYAN+"-----------------")
+                print(subscriptions)
+                print(Back.CYAN+"-----------------")
 
-async def main():
+async def main():   
     # Filter for Raydium public key
     filter_raydium = RpcTransactionLogsFilterMentions(RAYDIUM_PUBLIC_KEY)
     # Handler for new mints
-    handler_mint = LogsSubscriptionHandler({"rpc": os.getenv("WSS_PROVIDER"), "http": os.getenv("HTTP_PROVIDER")}, filter=filter_raydium)
+    handler_mint = LogsSubscriptionHandler({"rpc": os.getenv("WSS_MAINNET"), "http": os.getenv("HTTP_PROVIDER_MAIN")}, filter=filter_raydium)
+    subscriptions["raydium"] = handler_mint
     mint_task = handler_mint.listen(callback_raydium)
     await asyncio.gather(mint_task)
 
