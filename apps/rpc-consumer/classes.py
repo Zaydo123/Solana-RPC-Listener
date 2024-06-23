@@ -6,7 +6,17 @@ import json, time, logging, traceback, asyncio
 from decimal import Decimal
 from collections.abc import Mapping, Iterable
 
+
+# Constants
+
+LAMPORTS_PER_SOL = 1_000_000_000
+SOLANA_PUB_ADDRESS = "So11111111111111111111111111111111111111112"
+# ------------------------------
+
 init(autoreset=True)
+
+
+# ------- RPC Subscription Handlers -------
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format=f'{Fore.YELLOW}[Listener]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
@@ -23,6 +33,8 @@ class BaseSubscriptionHandler:
         self.subscription_id = None
         self.start_time = time.time()
         self.request_counter = 0
+        self.websocket = None
+        self.running = True
 
     async def connect_websocket(self):
         logging.info(f"Connecting to {self.url}")
@@ -54,25 +66,33 @@ class BaseSubscriptionHandler:
         logging.info(f"Subscribed with id {self.subscription_id}")
         return self.subscription_id
 
-    async def unsubscribe(self, websocket):
-        await websocket.logs_unsubscribe(self.subscription_id)
+    async def unsubscribe(self):
+        if self.websocket:
+            await self.websocket.logs_unsubscribe(self.subscription_id)
+            self.running = False
+            await self.websocket.close()
+            logging.info(f"Unsubscribed from {self.subscription_id}")
 
     async def _listen_loop(self, websocket, callback):
+        self.websocket = websocket  # Store websocket reference
         client = self.async_client_2 or self.async_client
         try:
-            while True:
+            while self.running:
                 next_resp = await websocket.recv()
                 if next_resp:
                     await callback(client, next_resp[0].to_json())
                     self._update_request_counter()
+        except asyncio.CancelledError:
+            logging.info("Listen loop was cancelled")
         except Exception as e:
-            logging.error(f"Error in listen/callback: {traceback.format_exc()}")
-            await self._reconnect_and_listen(callback)
+            if self.running:  # Only log error if not intentionally stopped
+                logging.error(f"Error in listen/callback: {traceback.format_exc()}")
+                await self._reconnect_and_listen(callback)
 
     async def _reconnect_and_listen(self, callback):
         retry_count = 0
         max_retries = 5
-        while retry_count < max_retries:
+        while retry_count < max_retries and self.running:
             logging.info("Reconnecting...")
             await asyncio.sleep(3)  # Incremental back-off can be implemented here
             try:
@@ -98,7 +118,7 @@ class LogsSubscriptionHandler(BaseSubscriptionHandler):
         self.filter = filter
 
     async def listen(self, callback):
-        while True:
+        while self.running:
             websocket = await self.connect_websocket()
             try:
                 await self.subscribe(websocket, filter=self.filter)
@@ -108,39 +128,78 @@ class LogsSubscriptionHandler(BaseSubscriptionHandler):
                 await self._reconnect_and_listen(callback)
 
 
+
+# ------- Transaction Detection -------
+
 class Transaction:
-    def __init__(self, account_owner, transaction_type, token, amount):
-        self.account_owner = account_owner
-        self.other_account = None
+    def __init__(self, token_addr, transaction_type, maker, amount_sol, fee_sol, block_time):
+        self.token_addr = token_addr
         self.transaction_type = transaction_type
-        self.token = token
-        self.amount = amount
+        self.maker = maker
+        self.amount_sol = amount_sol
+        self.fee_sol = fee_sol
+        self.block_time = block_time
+
+
+    def __repr__(self):
+        return f"Transaction(token_addr={self.token_addr}, transaction_type={self.transaction_type}, maker={self.maker}, amount_sol={self.amount_sol}, fee_sol={self.fee_sol}, block_time={self.block_time})"
 
     def __str__(self):
-        return f"{self.account_owner} {self.transaction_type} {self.amount} {self.token}"
-    
-    def __repr__(self):
-        return self.__str__()
-    
-    def to_dict(self):
+        return f"Transaction(token_addr={self.token_addr}, transaction_type={self.transaction_type}, maker={self.maker}, amount_sol={self.amount_sol}, fee_sol={self.fee_sol}, block_time={self.block_time})"
+
+    def to_json(self):
         return {
-            "account_owner": self.account_owner,
-            "other_account": self.other_account,
-            "transaction_type": self.transaction_type,
-            "token": self.token,
-            "amount": self.amount
+            "token_addr": str(self.token_addr), # solders.signature.Signature
+            "transaction_type": self.transaction_type, # str
+            "maker": str(self.maker), # solders.pubkey.Pubkey
+            "amount_sol": self.amount_sol, # float
+            "fee_sol": self.fee_sol, # float
+            "block_time": self.block_time # int
         }
     
-    def to_json(self):
-        return json.dumps(self.to_dict())
-    
+    @staticmethod
+    async def get_swap(trans_data, authority_address="5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"):
+        post_balances = trans_data.value.transaction.meta.post_token_balances
+        pre_balances = trans_data.value.transaction.meta.pre_token_balances
+        fee_paid = trans_data.value.transaction.meta.fee / LAMPORTS_PER_SOL
+        block_time = trans_data.value.block_time
 
-class DecimalEncoder(json.JSONEncoder):
-    def encode(self, obj):
-        if isinstance(obj, Mapping):
-            return '{' + ', '.join(f'{self.encode(k)}: {self.encode(v)}' for (k, v) in obj.items()) + '}'
-        if isinstance(obj, Iterable) and (not isinstance(obj, str)):
-            return '[' + ', '.join(map(self.encode, obj)) + ']'
-        if isinstance(obj, Decimal):
-            return f'{obj.normalize():f}'  # using normalize() gets rid of trailing 0s, using ':f' prevents scientific notation
-        return super().encode(obj)
+        # Find the swap amount, maker address, and token address
+        found_swap_amt = False
+        found_maker = False
+        maker = None
+        token_addr = None
+        
+        for post_balance in post_balances:
+                for pre_balance in pre_balances:
+                    # Find the swap amount
+                    if str(post_balance.owner) == authority_address and str(post_balance.mint) == SOLANA_PUB_ADDRESS and str(pre_balance.owner) == authority_address and str(pre_balance.mint) == SOLANA_PUB_ADDRESS:
+                            pre_amount = float(pre_balance.ui_token_amount.ui_amount_string)
+                            post_amount = float(post_balance.ui_token_amount.ui_amount_string)
+                            swap_amt = post_amount - pre_amount
+                            found_swap_amt = True
+                    # Find the owner of the token
+                    if str(post_balance.owner) != authority_address and pre_balance.owner == post_balance.owner and pre_balance.mint == post_balance.mint:
+                        pre_amount = float(pre_balance.ui_token_amount.ui_amount_string)
+                        post_amount = float(post_balance.ui_token_amount.ui_amount_string)
+                        if pre_amount != post_amount:
+                            maker = post_balance.owner
+                            token_addr = post_balance.mint
+                            found_maker = True
+
+                    if found_swap_amt and found_maker:
+                        break
+
+
+        # Determine transaction type
+        if swap_amt > 0:
+            transaction_type = "Buy"
+        elif swap_amt < 0:
+            transaction_type = "Sell"
+        else:
+            transaction_type = "Unknown"
+
+
+
+        return Transaction(token_addr, transaction_type, maker, abs(swap_amt), fee_paid, block_time)
+    
