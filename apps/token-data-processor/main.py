@@ -1,5 +1,5 @@
 from solana.rpc.async_api import AsyncClient
-from apps.helpers.redis_health import HealthTask
+from helpers import HealthTask
 from dotenv import load_dotenv, find_dotenv
 from solders.signature import Signature
 from colorama import Fore, Back, init
@@ -18,7 +18,7 @@ logging.getLogger("solana").setLevel(logging.WARNING)
 load_dotenv(find_dotenv(".env"))
 logging.info("Booting up...")
 
-client = AsyncClient(os.getenv("WSS_PROVIDER"))
+client = AsyncClient(os.getenv("WSS_PROVIDER_MAIN"))
 WRAPPED_SOL_PUBKEY_STRING = "So11111111111111111111111111111111111111112"
 RAYDIUM_PUBLIC_KEY_STRING = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 PARSED_PAIRS_CHANNEL = os.getenv("REDIS_PARSED_PAIRS_CHANNEL")
@@ -164,10 +164,10 @@ async def listen_for_new_pairs():
                 json_data = json.loads(message["data"])
                 if json_data["message"].startswith("[>]"):
                     continue # ignore messages from the processor
-                if json_data["baseToken"] != WRAPPED_SOL_PUBKEY_STRING:
-                    await new_pair_task(json_data)
+                
+                #if json_data["baseToken"] != WRAPPED_SOL_PUBKEY_STRING:
                 else:
-                    logging.info(f"Skipping wrapped sol pair")
+                    await new_pair_task(json_data)
                     
 
         except (ConnectionError, Exception) as e:

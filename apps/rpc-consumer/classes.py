@@ -10,7 +10,7 @@ from collections.abc import Mapping, Iterable
 # Constants
 
 LAMPORTS_PER_SOL = 1_000_000_000
-
+SOLANA_PUB_ADDRESS = "So11111111111111111111111111111111111111112"
 # ------------------------------
 
 init(autoreset=True)
@@ -156,24 +156,40 @@ class Transaction:
             "fee_sol": self.fee_sol, # float
             "block_time": self.block_time # int
         }
+    
     @staticmethod
-    async def get_swap(trans_data, authority_address="5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1", solana_pub_address="So11111111111111111111111111111111111111112"):
-        swap_amt = 0
-        balances = trans_data.value.transaction.meta.post_token_balances
+    async def get_swap(trans_data, authority_address="5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"):
+        post_balances = trans_data.value.transaction.meta.post_token_balances
         pre_balances = trans_data.value.transaction.meta.pre_token_balances
         fee_paid = trans_data.value.transaction.meta.fee / LAMPORTS_PER_SOL
         block_time = trans_data.value.block_time
 
-        # Find the swap amount
-        for balance in balances:
-            if str(balance.owner) == authority_address and str(balance.mint) == solana_pub_address:
+        # Find the swap amount, maker address, and token address
+        found_swap_amt = False
+        found_maker = False
+        maker = None
+        token_addr = None
+        
+        for post_balance in post_balances:
                 for pre_balance in pre_balances:
-                    if str(pre_balance.owner) == authority_address and str(pre_balance.mint) == solana_pub_address:
+                    # Find the swap amount
+                    if str(post_balance.owner) == authority_address and str(post_balance.mint) == SOLANA_PUB_ADDRESS and str(pre_balance.owner) == authority_address and str(pre_balance.mint) == SOLANA_PUB_ADDRESS:
+                            pre_amount = float(pre_balance.ui_token_amount.ui_amount_string)
+                            post_amount = float(post_balance.ui_token_amount.ui_amount_string)
+                            swap_amt = post_amount - pre_amount
+                            found_swap_amt = True
+                    # Find the owner of the token
+                    if str(post_balance.owner) != authority_address and pre_balance.owner == post_balance.owner and pre_balance.mint == post_balance.mint:
                         pre_amount = float(pre_balance.ui_token_amount.ui_amount_string)
-                        post_amount = float(balance.ui_token_amount.ui_amount_string)
-                        swap_amt = post_amount - pre_amount
+                        post_amount = float(post_balance.ui_token_amount.ui_amount_string)
+                        if pre_amount != post_amount:
+                            maker = post_balance.owner
+                            token_addr = post_balance.mint
+                            found_maker = True
+
+                    if found_swap_amt and found_maker:
                         break
-                break
+
 
         # Determine transaction type
         if swap_amt > 0:
@@ -183,20 +199,6 @@ class Transaction:
         else:
             transaction_type = "Unknown"
 
-        # Find who executed the swap
-        maker = None
-        for balance in balances:
-            if str(balance.owner) != authority_address:
-                for pre_balance in pre_balances:
-                    if pre_balance.owner == balance.owner and pre_balance.mint == balance.mint:
-                        pre_amount = float(pre_balance.ui_token_amount.ui_amount_string)
-                        post_amount = float(balance.ui_token_amount.ui_amount_string)
-                        if pre_amount != post_amount:
-                            maker = balance.owner
-                            token_addr = balance.mint
-                            break
-            if maker:
-                break
 
 
         return Transaction(token_addr, transaction_type, maker, abs(swap_amt), fee_paid, block_time)

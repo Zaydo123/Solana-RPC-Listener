@@ -1,17 +1,19 @@
 from solders.rpc.config import RpcTransactionLogsFilterMentions
 from classes import LogsSubscriptionHandler, Transaction
-from solders.signature import Signature
-from solders.pubkey import Pubkey
 from collections.abc import Mapping, Iterable
 from solana.rpc.async_api import AsyncClient
 from dotenv import load_dotenv, find_dotenv
-import json, os, asyncio
-from threading import Thread
-import logging, colorama
+from solders.signature import Signature
 from colorama import Fore, Back, init
+from solders.pubkey import Pubkey
+from helpers import HealthTask
+from threading import Thread
+import json, os, asyncio
+import logging, colorama
 from redis import Redis
-import time
 import traceback
+import time
+import os
 
 # Initialize colorama
 init(autoreset=True)
@@ -32,6 +34,20 @@ RAYDIUM_AMM_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"
 
 # Redis connection
 redis_client = Redis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), db=os.getenv("REDIS_DB"), decode_responses=True)
+
+# Redis health task
+failure_count = 0
+def handle_redis_failure():
+    global failure_count
+    logging.error("Redis health check failed")
+    failure_count += 1
+    if failure_count >= 5:
+        # emergency exit if redis fails
+        os._exit(1) 
+        
+
+health_task = HealthTask(redis_client, 10, handle_redis_failure)
+Thread(target=health_task.run).start()
 
 # Global variables
 last_base = None
@@ -86,7 +102,7 @@ async def swap_callback(ctx: AsyncClient, data: str):
 
 
 async def callback_raydium(ctx: AsyncClient, data: str):
-    global last_base, last_quote, swap_callback
+    global last_base, last_quote
     json_data = json.loads(data)
     
     for log in json_data["result"]["value"]["logs"]:
@@ -131,7 +147,7 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                     quote = accounts[9]
 
                 # Swap base and quote if quote is WRAPPED_SOL_PUBKEY_STRING
-                if quote == WRAPPED_SOL_PUBKEY_STRING:
+                if base == WRAPPED_SOL_PUBKEY_STRING:
                     base, quote = quote, base
 
                 if base == last_base and quote == last_quote:

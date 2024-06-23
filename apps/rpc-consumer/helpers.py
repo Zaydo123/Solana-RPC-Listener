@@ -1,4 +1,4 @@
-from colorama import Fore, Back, init
+from colorama import Fore, init
 from time import sleep
 import logging
 
