@@ -1,16 +1,19 @@
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.websocket_api import connect
 from solders.signature import Signature
+from solders.pubkey import Pubkey
 from colorama import Fore, init
 import json, time, logging, traceback, asyncio
 from decimal import Decimal
 from collections.abc import Mapping, Iterable
+import solders
 
 
 # Constants
 
 LAMPORTS_PER_SOL = 1_000_000_000
 SOLANA_PUB_ADDRESS = "So11111111111111111111111111111111111111112"
+WRAPPED_SOL_PUBKEY = Pubkey.from_string(SOLANA_PUB_ADDRESS)
 # ------------------------------
 
 init(autoreset=True)
@@ -157,49 +160,86 @@ class Transaction:
             "block_time": self.block_time # int
         }
     
+    
+class Transaction:
+    def __init__(self, token_addr, transaction_type, maker, amount_sol, fee_sol, block_time):
+        self.token_addr = token_addr
+        self.transaction_type = transaction_type
+        self.maker = maker
+        self.amount_sol = amount_sol
+        self.fee_sol = fee_sol
+        self.block_time = block_time
+
+
+    def __repr__(self):
+        return f"Transaction(token_addr={self.token_addr}, transaction_type={self.transaction_type}, maker={self.maker}, amount_sol={self.amount_sol}, fee_sol={self.fee_sol}, block_time={self.block_time})"
+
+    def __str__(self):
+        return f"Transaction(token_addr={self.token_addr}, transaction_type={self.transaction_type}, maker={self.maker}, amount_sol={self.amount_sol}, fee_sol={self.fee_sol}, block_time={self.block_time})"
+
+    def to_json(self):
+        return {
+            "token_addr": str(self.token_addr), # solders.signature.Signature
+            "transaction_type": self.transaction_type, # str
+            "maker": str(self.maker), # solders.pubkey.Pubkey
+            "amount_sol": self.amount_sol, # float
+            "fee_sol": self.fee_sol, # float
+            "block_time": self.block_time # int
+        }
+    
     @staticmethod
-    async def get_swap(trans_data, authority_address="5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"):
+    async def get_swap(trans_data : solders.rpc.responses.GetTransactionResp, authority_address="5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"): # authority address is amm address 
+        amm_pubkey = Pubkey.from_string(authority_address)
         post_balances = trans_data.value.transaction.meta.post_token_balances
         pre_balances = trans_data.value.transaction.meta.pre_token_balances
-        fee_paid = trans_data.value.transaction.meta.fee / LAMPORTS_PER_SOL
+        fee_paid = str(Decimal(trans_data.value.transaction.meta.fee) / LAMPORTS_PER_SOL)
         block_time = trans_data.value.block_time
 
-        # Find the swap amount, maker address, and token address
-        found_swap_amt = False
-        found_maker = False
-        maker = None
-        token_addr = None
+        # -------------- load up all accounts into a dictionary for easy access -------------- 
+        native_accounts_pre = {}
+        non_native_accounts_pre = {}
+        native_accounts_post = {}
+        non_native_accounts_post = {}
+        ctpre = 0
+        ctpost = 0
+        token_addr = "Unknown"
+        transaction_type = "Unknown"
+        maker = "Unknown"
+
+        for pre_balance in pre_balances:
+            if pre_balance.mint == WRAPPED_SOL_PUBKEY:
+                native_accounts_pre[str(pre_balance.owner)] = pre_balance.ui_token_amount.ui_amount_string
+            else:
+                non_native_accounts_pre[str(pre_balance.owner)] = pre_balance.ui_token_amount.ui_amount_string
+            ctpre += 1
+
+        for post_balance in post_balances:
+            if post_balance.mint == WRAPPED_SOL_PUBKEY:
+                native_accounts_post[str(post_balance.owner)] = post_balance.ui_token_amount.ui_amount_string
+            else:
+                non_native_accounts_post[str(post_balance.owner)] = (post_balance.ui_token_amount.ui_amount_string, post_balance.mint)
+            ctpost += 1
+
+        # -------------- Determine Swap amount and maker ----------------
         
         for post_balance in post_balances:
-                for pre_balance in pre_balances:
-                    # Find the swap amount
-                    if str(post_balance.owner) == authority_address and str(post_balance.mint) == SOLANA_PUB_ADDRESS and str(pre_balance.owner) == authority_address and str(pre_balance.mint) == SOLANA_PUB_ADDRESS:
-                            pre_amount = float(pre_balance.ui_token_amount.ui_amount_string)
-                            post_amount = float(post_balance.ui_token_amount.ui_amount_string)
-                            swap_amt = post_amount - pre_amount
-                            found_swap_amt = True
-                    # Find the owner of the token
-                    if str(post_balance.owner) != authority_address and pre_balance.owner == post_balance.owner and pre_balance.mint == post_balance.mint:
-                        pre_amount = float(pre_balance.ui_token_amount.ui_amount_string)
-                        post_amount = float(post_balance.ui_token_amount.ui_amount_string)
-                        if pre_amount != post_amount:
-                            maker = post_balance.owner
-                            token_addr = post_balance.mint
-                            found_maker = True
+            # find amount of swap
+            if post_balance.owner == amm_pubkey and post_balance.mint == WRAPPED_SOL_PUBKEY:
+                swap_amt = Decimal(post_balance.ui_token_amount.ui_amount_string) - Decimal(native_accounts_pre.get(str(post_balance.owner))) #type:ignore 
+                transaction_type = "Buy" if swap_amt > 0 else "Sell"
 
-                    if found_swap_amt and found_maker:
-                        break
+            # if the post-pre amounts are the same as the AMM's post-pre amounts, then the maker is that account
+            if post_balance.ui_token_amount.ui_amount_string != "0" and post_balance.owner != amm_pubkey and post_balance.mint == WRAPPED_SOL_PUBKEY and abs(Decimal(post_balance.ui_token_amount.ui_amount_string) - Decimal(native_accounts_pre.get(str(post_balance.owner)))) == abs(Decimal(native_accounts_post.get(str(authority_address))) - Decimal(native_accounts_pre.get(str(authority_address)))): #type:ignore
+                maker = Pubkey.from_string(str(post_balance.owner))
+                if post_balance.mint != WRAPPED_SOL_PUBKEY:
+                    token_addr = non_native_accounts_post.get(str(post_balance.owner))[1] #type:ignore
+                else:
+                    print(non_native_accounts_post)
+                    token_addr = non_native_accounts_post.get(str(amm_pubkey))[1]
+
+        # conversion to str
+        swap_amt = str(abs(swap_amt))
 
 
-        # Determine transaction type
-        if swap_amt > 0:
-            transaction_type = "Buy"
-        elif swap_amt < 0:
-            transaction_type = "Sell"
-        else:
-            transaction_type = "Unknown"
-
-
-
-        return Transaction(token_addr, transaction_type, maker, abs(swap_amt), fee_paid, block_time)
+        return Transaction(token_addr, transaction_type, maker, swap_amt, fee_paid, block_time)
     
