@@ -1,5 +1,6 @@
+from classes import LogsSubscriptionHandler, TransactionSubscriptionHandler, Transaction
+from solders.transaction_status import ParsedInstruction # temporary
 from solders.rpc.config import RpcTransactionLogsFilterMentions
-from classes import LogsSubscriptionHandler, Transaction
 from collections.abc import Mapping, Iterable
 from solana.rpc.async_api import AsyncClient
 from dotenv import load_dotenv, find_dotenv
@@ -61,8 +62,7 @@ def initialize_redis():
         logging.info(f"Consumers in channel: {channel}")
         redis_client.publish(channel, '{"message": "[>] Hello from the transaction listener"}')
 
-
-async def swap_callback(ctx: AsyncClient, data: str):
+async def swap_callback(ctx: AsyncClient, data: str, target_token: str):
     """Handle swap callback for transactions."""
     json_data = json.loads(data)
 
@@ -81,7 +81,8 @@ async def swap_callback(ctx: AsyncClient, data: str):
         try:
             logging.info(signature_str)
             transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment="confirmed", encoding="jsonParsed")
-            swap_data = await Transaction.get_swap(transaction)
+            swap_data = await Transaction.get_swap(transaction, target_token)
+            redis_client.publish(f"swap-{target_token}", json.dumps(swap_data.to_json()))
             logging.info("----- SWAP ------\n" + json.dumps(swap_data.to_json(), indent=4) + "\n------------------")
             
         except Exception as e:
@@ -90,16 +91,13 @@ async def swap_callback(ctx: AsyncClient, data: str):
             return
     
 
-        #target_channel = f"swap-{swap_data["token_addr"]}"  -- currently commented out because token_addr is showing up as WRAPPED_SOL_PUBKEY_STRING instead of the actual token address. this is a bug in the Transaction.get_swap method. ez fix later
-        #print(target_channel) - also need to reimplement token_addr detection because it gets really confused on complex transactions
-        #redis_client.publish(target_channel, json.dumps(swap_data.to_json()))
+        target_channel = f"swap-{swap_data.token_addr}"
+        logging.info(target_channel)
+        redis_client.publish(target_channel, json.dumps(swap_data.to_json()))
 
     except Exception as e:
         logging.error("Error processing transaction", exc_info=True)
         return
-
-
-
 
 async def callback_raydium(ctx: AsyncClient, data: str):
     global last_base, last_quote
@@ -141,7 +139,6 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                     return
                 
                 else:
-
                     pool_account = accounts[4]
                     base = accounts[8]
                     quote = accounts[9]
@@ -165,13 +162,32 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                 subscription_key = f"swaps-{base}-{quote}"
                 if subscription_key not in subscriptions:
                     pool_account_filter = RpcTransactionLogsFilterMentions(Pubkey.from_string(pool_account))
-                    handler_swaps = LogsSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER_TRANSACTIONS"), "http":os.environ.get("HTTP_PROVIDER_TRANSACTIONS")}, filter=pool_account_filter)
+                    handler_swaps = TransactionSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER_TRANSACTIONS"), "http":os.environ.get("HTTP_PROVIDER_TRANSACTIONS")}, filter=pool_account_filter)
                     subscriptions[subscription_key] = handler_swaps
-                    asyncio.create_task(handler_swaps.listen(swap_callback))
+                    asyncio.create_task(handler_swaps.listen(swap_callback, base)) # target_token is the base token in the pair (makes it easier to filter out noise in swap transactions)
                     asyncio.create_task(unsubscribe_after_timeout(subscription_key, duration=50)) 
                     logging.info(f"Subscribed to {subscription_key}")
                 else:
                     logging.info(f"{Fore.RED}Subscription for {subscription_key} already exists{Fore.RESET}")
+            else: # Burn instruction
+                if "Burn" in log:
+                    signature = Signature.from_string(json_data["result"]["value"]["signature"])
+                    logging.info(f"Burn TX: {signature}")
+                    try:
+                        transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment="confirmed",encoding="jsonParsed")
+                        res = await ctx.get_transaction(Signature.from_string("E4jxokMPvmh5QM3yWBUunFrRdizCFY32swy8i3SWpf2U4NLx8Ea5BTbZJHF9fNbAsmsiFvJfTBQUyC2Qua99Hbq"), max_supported_transaction_version=0, commitment="confirmed", encoding="jsonParsed")
+                        ct = 0
+                        for instruction in res.value.transaction.meta.inner_instructions:
+                            for i in instruction.instructions:
+                                ct += 1
+                                if type(i)==ParsedInstruction:
+                                    if(i.parsed["type"].find("burn") != -1):
+                                        logging.info(f"Burn in instruction : {ct}" )
+
+                    except Exception as e:
+                        logging.error(f"Error fetching transaction: {e}")
+                        return
+                    
 
 async def unsubscribe_after_timeout(subscription_key: str, duration: int):
     """Unsubscribe after a specified timeout."""
@@ -180,6 +196,7 @@ async def unsubscribe_after_timeout(subscription_key: str, duration: int):
         handler = subscriptions.pop(subscription_key)
         await handler.unsubscribe()
         logging.info(f"Unsubscribed from {subscription_key} after {duration} seconds")
+
 
 async def main():
     """Main entry point for the async tasks."""
