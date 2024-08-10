@@ -1,6 +1,7 @@
 from classes import LogsSubscriptionHandler, TransactionSubscriptionHandler, Transaction
 from solders.transaction_status import ParsedInstruction # temporary
 from solders.rpc.config import RpcTransactionLogsFilterMentions
+from solana.rpc.commitment import Confirmed
 from collections.abc import Mapping, Iterable
 from solana.rpc.async_api import AsyncClient
 from dotenv import load_dotenv, find_dotenv
@@ -30,6 +31,7 @@ TOKEN_PROGRAM_PUBLIC_KEY = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9
 RAYDIUM_PUBLIC_KEY_STRING = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 RAYDIUM_PUBLIC_KEY = Pubkey.from_string(RAYDIUM_PUBLIC_KEY_STRING)
 NEW_PAIRS_CHANNEL = os.getenv("REDIS_NEW_PAIRS_CHANNEL")
+BURNS_CHANNEL = os.getenv("REDIS_BURNS_CHANNEL")
 WRAPPED_SOL_PUBKEY_STRING = "So11111111111111111111111111111111111111112"
 RAYDIUM_AMM_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"
 
@@ -79,11 +81,16 @@ async def swap_callback(ctx: AsyncClient, data: str, target_token: str):
         signature_str = json_data["result"]["value"]["signature"]
         signature = Signature.from_string(json_data["result"]["value"]["signature"])
         try:
-            logging.info(signature_str)
-            transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment="confirmed", encoding="jsonParsed")
+            # logging.info(signature_str)
+            transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed, encoding="jsonParsed")
+
+            if transaction is None or transaction.value is None:
+                logging.error("TX ID - " + signature_str + " - Transaction not found")
+                return
+            
             swap_data = await Transaction.get_swap(transaction, target_token)
             redis_client.publish(f"swap-{target_token}", json.dumps(swap_data.to_json()))
-            logging.info("----- SWAP ------\n" + json.dumps(swap_data.to_json(), indent=4) + "\n------------------")
+            # logging.info("----- SWAP ------\n" + json.dumps(swap_data.to_json(), indent=4) + "\n------------------")
             
         except Exception as e:
             logging.error("Error fetching transaction from RPC")
@@ -118,7 +125,7 @@ async def callback_raydium(ctx: AsyncClient, data: str):
 
                 signature = Signature.from_string(json_data["result"]["value"]["signature"])
                 try:
-                    transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment="confirmed",encoding="jsonParsed")
+                    transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed,encoding="jsonParsed")
 
                 except Exception as e:
                     logging.error(f"Error fetching transaction: {e}")
@@ -169,25 +176,25 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                     logging.info(f"Subscribed to {subscription_key}")
                 else:
                     logging.info(f"{Fore.RED}Subscription for {subscription_key} already exists{Fore.RESET}")
-            else: # Burn instruction
-                if "Burn" in log:
-                    signature = Signature.from_string(json_data["result"]["value"]["signature"])
-                    logging.info(f"Burn TX: {signature}")
-                    try:
-                        transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment="confirmed",encoding="jsonParsed")
-                        res = await ctx.get_transaction(Signature.from_string("E4jxokMPvmh5QM3yWBUunFrRdizCFY32swy8i3SWpf2U4NLx8Ea5BTbZJHF9fNbAsmsiFvJfTBQUyC2Qua99Hbq"), max_supported_transaction_version=0, commitment="confirmed", encoding="jsonParsed")
-                        ct = 0
-                        for instruction in res.value.transaction.meta.inner_instructions:
-                            for i in instruction.instructions:
-                                ct += 1
-                                if type(i)==ParsedInstruction:
-                                    if(i.parsed["type"].find("burn") != -1):
-                                        logging.info(f"Burn in instruction : {ct}" )
+            # ---------------------- Burn instruction ----------------------                    
+            if "Burn" in log:
+                signature = Signature.from_string(json_data["result"]["value"]["signature"])
+                logging.info(f"Burn TX: {signature}")
+                try:
+                    res = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed,encoding="jsonParsed")
+                    for instruction in res.value.transaction.meta.inner_instructions:
+                        for i in instruction.instructions:
+                            if type(i)==ParsedInstruction:
+                                if(i.parsed["type"].find("burn") != -1):
+                                    publish_data = {}
+                                    publish_data["info"] = i.parsed.get("info")
+                                    publish_data["block_time"] = res.value.block_time
+                                    redis_client.publish(BURNS_CHANNEL, json.dumps(publish_data))
 
-                    except Exception as e:
-                        logging.error(f"Error fetching transaction: {e}")
-                        return
-                    
+                except Exception as e:
+                    logging.error(f"Error fetching transaction: {e}")
+                    return
+
 
 async def unsubscribe_after_timeout(subscription_key: str, duration: int):
     """Unsubscribe after a specified timeout."""
