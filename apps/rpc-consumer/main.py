@@ -32,6 +32,7 @@ RAYDIUM_PUBLIC_KEY_STRING = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 RAYDIUM_PUBLIC_KEY = Pubkey.from_string(RAYDIUM_PUBLIC_KEY_STRING)
 NEW_PAIRS_CHANNEL = os.getenv("REDIS_NEW_PAIRS_CHANNEL")
 BURNS_CHANNEL = os.getenv("REDIS_BURNS_CHANNEL")
+SWAPS_CHANNEL = os.getenv("REDIS_SWAPS_CHANNEL")
 WRAPPED_SOL_PUBKEY_STRING = "So11111111111111111111111111111111111111112"
 RAYDIUM_AMM_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"
 
@@ -89,18 +90,13 @@ async def swap_callback(ctx: AsyncClient, data: str, target_token: str):
                 return
             
             swap_data = await Transaction.get_swap(transaction, target_token)
-            redis_client.publish(f"swap-{target_token}", json.dumps(swap_data.to_json()))
-            # logging.info("----- SWAP ------\n" + json.dumps(swap_data.to_json(), indent=4) + "\n------------------")
+            redis_client.publish(SWAPS_CHANNEL, json.dumps(swap_data.to_json()))
             
         except Exception as e:
             logging.error("Error fetching transaction from RPC")
             logging.error(traceback.format_exc() + "\n-------")
             return
     
-
-        target_channel = f"swap-{swap_data.token_addr}"
-        logging.info(target_channel)
-        redis_client.publish(target_channel, json.dumps(swap_data.to_json()))
 
     except Exception as e:
         logging.error("Error processing transaction", exc_info=True)
