@@ -75,7 +75,8 @@ async def swap_callback(ctx: AsyncClient, data: str, target_token: str):
     try:
         signature = Signature.from_string(json_data["result"]["value"]["signature"])
         swap_data = await Transaction.get_swap(ctx,signature, target_token)
-        redis_client.publish(str(SWAPS_CHANNEL), json.dumps(swap_data.to_json()))
+        event = SwapEvent(swap_data)
+        redis_client.publish(str(SWAPS_CHANNEL), str(event))
         
     except Exception as e:
         logging.error("Error fetching transaction from RPC")
