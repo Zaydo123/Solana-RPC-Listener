@@ -1,6 +1,7 @@
 from classes import LogsSubscriptionHandler, TransactionSubscriptionHandler, Transaction
 from solders.transaction_status import ParsedInstruction # temporary
 from solders.rpc.config import RpcTransactionLogsFilterMentions
+from events import NewPairEvent, BurnEvent, SwapEvent
 from solana.rpc.commitment import Confirmed
 from collections.abc import Mapping, Iterable
 from solana.rpc.async_api import AsyncClient
@@ -58,13 +59,6 @@ last_base = None
 last_quote = None
 subscriptions = {}
 
-def initialize_redis():
-    """Initialize Redis and publish a welcome message."""
-    open_channels = redis_client.pubsub_channels()
-    for channel in open_channels:
-        logging.info(f"Consumers in channel: {channel}")
-        redis_client.publish(channel, '{"message": "[>] Hello from the transaction listener"}')
-
 async def swap_callback(ctx: AsyncClient, data: str, target_token: str):
     """Handle swap callback for transactions."""
     json_data = json.loads(data)
@@ -79,28 +73,15 @@ async def swap_callback(ctx: AsyncClient, data: str, target_token: str):
     swap_data = None
 
     try:
-        signature_str = json_data["result"]["value"]["signature"]
         signature = Signature.from_string(json_data["result"]["value"]["signature"])
-        try:
-            # logging.info(signature_str)
-            transaction = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed, encoding="jsonParsed")
-
-            if transaction is None or transaction.value is None:
-                logging.error("TX ID - " + signature_str + " - Transaction not found")
-                return
-            
-            swap_data = await Transaction.get_swap(transaction, target_token)
-            redis_client.publish(SWAPS_CHANNEL, json.dumps(swap_data.to_json()))
-            
-        except Exception as e:
-            logging.error("Error fetching transaction from RPC")
-            logging.error(traceback.format_exc() + "\n-------")
-            return
-    
-
+        swap_data = await Transaction.get_swap(ctx,signature, target_token)
+        redis_client.publish(str(SWAPS_CHANNEL), json.dumps(swap_data.to_json()))
+        
     except Exception as e:
-        logging.error("Error processing transaction", exc_info=True)
+        logging.error("Error fetching transaction from RPC")
+        logging.error(traceback.format_exc() + "\n-------")
         return
+
 
 async def callback_raydium(ctx: AsyncClient, data: str):
     global last_base, last_quote
@@ -159,8 +140,8 @@ async def callback_raydium(ctx: AsyncClient, data: str):
 
                 logging.info(f"{Fore.GREEN}New pair found: {base} - {quote}{Fore.RESET}")
 
-                data = {"message":"new pair", "mintTimestamp": token_mint_timestamp, "baseToken": base, "quoteToken": quote, "sig": sig_string, "poolAccount": pool_account, "full_tx": tx_str}
-                redis_client.publish(NEW_PAIRS_CHANNEL, json.dumps(data))
+                response = NewPairEvent(base, quote, pool_account, token_mint_timestamp)
+                redis_client.publish(str(NEW_PAIRS_CHANNEL), str(response))
 
                 subscription_key = f"swaps-{base}-{quote}"
                 if subscription_key not in subscriptions:
@@ -175,17 +156,28 @@ async def callback_raydium(ctx: AsyncClient, data: str):
             # ---------------------- Burn instruction ----------------------                    
             if "Burn" in log:
                 signature = Signature.from_string(json_data["result"]["value"]["signature"])
-                logging.info(f"Burn TX: {signature}")
                 try:
                     res = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed,encoding="jsonParsed")
                     for instruction in res.value.transaction.meta.inner_instructions:
                         for i in instruction.instructions:
                             if type(i)==ParsedInstruction:
                                 if(i.parsed["type"].find("burn") != -1):
-                                    publish_data = {}
-                                    publish_data["info"] = i.parsed.get("info")
-                                    publish_data["block_time"] = res.value.block_time
-                                    redis_client.publish(BURNS_CHANNEL, json.dumps(publish_data))
+                                    # publish_data = {}
+                                    # publish_data["info"] = i.parsed.get("info")
+                                    # publish_data["block_time"] = res.value.block_time
+
+                                    info = i.parsed.get("info")
+                                    if isinstance(info, dict):
+                                        mint = info.get("mint")
+                                        account = info.get("account")
+                                        authority = info.get("authority")
+                                        amount = info.get("amount")
+                                        publish_data = BurnEvent(mint, account, authority, amount, res.value.block_time)
+                                    else:
+                                        logging.warning("Invalid 'info' format")
+                                        return
+
+                                    redis_client.publish(str(BURNS_CHANNEL),str(publish_data))
 
                 except Exception as e:
                     logging.error(f"Error fetching transaction: {e}")
@@ -216,5 +208,4 @@ async def main():
     await asyncio.gather(mint_task)
 
 if __name__ == "__main__":
-    initialize_redis()
     asyncio.run(main())
