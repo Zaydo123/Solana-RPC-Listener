@@ -19,6 +19,9 @@ type Config struct {
 	ParsedPairsChannel string
 	PricesChannel      string
 	SwapsChannel       string
+	RPCURL             string
+	RPCRateLimitTime   int
+	RPCRateLimitBurst  int
 }
 
 var ApplicationConfig Config
@@ -90,6 +93,24 @@ func ParseEnv() *Config {
 	ApplicationConfig.ParsedPairsChannel = GetEnv("REDIS_PARSED_PAIRS_CHANNEL")
 	ApplicationConfig.PricesChannel = GetEnv("REDIS_PRICES_CHANNEL")
 	ApplicationConfig.SwapsChannel = GetEnv("REDIS_SWAPS_CHANNEL")
+	ApplicationConfig.RPCURL = GetEnv("HTTP_PROVIDER_MAIN")
+	rateLimitTime, err := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_TIME"))
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT")
+		return nil
+	}
+
+	ApplicationConfig.RPCRateLimitTime = rateLimitTime
+
+	rateLimitBurst, err := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_BURST"))
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT_BURST")
+		return nil
+	}
+
+	ApplicationConfig.RPCRateLimitBurst = rateLimitBurst
 
 	return &ApplicationConfig
 
