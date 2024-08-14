@@ -3,6 +3,7 @@ from solana.rpc.websocket_api import connect
 from solders.signature import Signature
 from solders.pubkey import Pubkey
 from colorama import Fore, init
+from solana.rpc.commitment import Confirmed
 import json, time, logging, traceback, asyncio
 from decimal import Decimal
 from collections.abc import Mapping, Iterable
@@ -180,7 +181,8 @@ class TransactionSubscriptionHandler(LogsSubscriptionHandler):
 
 
 class Transaction:
-    def __init__(self, token_addr, transaction_type, maker, amount_sol, fee_sol, block_time):
+    def __init__(self, signature, token_addr, transaction_type, maker, amount_sol, fee_sol, block_time=time.time()):
+        self.signature = signature
         self.token_addr = token_addr
         self.transaction_type = transaction_type
         self.maker = maker
@@ -190,14 +192,15 @@ class Transaction:
 
 
     def __repr__(self):
-        return f"Transaction(token_addr={self.token_addr}, transaction_type={self.transaction_type}, maker={self.maker}, amount_sol={self.amount_sol}, fee_sol={self.fee_sol}, block_time={self.block_time})"
+        return f"Transaction(signature={self.signature},token_addr={self.token_addr}, transaction_type={self.transaction_type}, maker={self.maker}, amount_sol={self.amount_sol}, fee_sol={self.fee_sol}, block_time={self.block_time})"
 
     def __str__(self):
-        return f"Transaction(token_addr={self.token_addr}, transaction_type={self.transaction_type}, maker={self.maker}, amount_sol={self.amount_sol}, fee_sol={self.fee_sol}, block_time={self.block_time})"
+        return f"Transaction(signature={self.signature},token_addr={self.token_addr}, transaction_type={self.transaction_type}, maker={self.maker}, amount_sol={self.amount_sol}, fee_sol={self.fee_sol}, block_time={self.block_time})"
 
     def to_json(self):
         return {
-            "token_addr": str(self.token_addr), # solders.signature.Signature
+            "signature": str(self.signature), # solders.signature.Signature
+            "token_address": str(self.token_addr), # solders.pubkey.Pubkey
             "transaction_type": self.transaction_type, # str
             "maker": str(self.maker), # solders.pubkey.Pubkey
             "amount_sol": self.amount_sol, # float
@@ -206,8 +209,8 @@ class Transaction:
         }
     
     @staticmethod
-    async def get_swap(trans_data : solders.rpc.responses.GetTransactionResp, target_token: str, authority_address="5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"): # authority address is amm address 
-        
+    async def get_swap(ctx : AsyncClient, signature : Signature, target_token: str, authority_address="5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"): # authority address is amm address 
+        trans_data = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed, encoding="jsonParsed")
         result = []
 
         amm_pubkey = Pubkey.from_string(authority_address)
@@ -269,7 +272,7 @@ class Transaction:
             else:
                 transaction_type = "Buy"
             swap_amt = str(abs(swap_amt))
-            result.append(Transaction(token_addr, transaction_type, maker, swap_amt, fee_paid, block_time))
+            result.append(Transaction(signature,token_addr,transaction_type, maker, swap_amt, fee_paid, block_time))
 
         if len(result) == 0:
             raise Exception("No swaps detected in transaction")
@@ -281,4 +284,3 @@ class Transaction:
             # throw an exception if the target token was not found
             raise Exception("Target token not found in transaction")
     
-

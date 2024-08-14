@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/redis/listeners"
+	parser "github.com/Zaydo123/token-processor/internal/token/pairs"
+	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/rs/zerolog/log"
 	//"github.com/Zaydo123/token-processor/internal/token/models"
 )
@@ -16,22 +19,23 @@ func main() {
 
 	// ================== Load configuration ==================
 
-	// Load configuration from environment variables
-	findEnv := config.LoadEnv(5)
+	config.LoadEnv(5)
+	config.ParseEnv()
 
-	if !findEnv {
-		log.Fatal().Msg("Error loading environment variables. Exiting...")
+	tp := parser.NewTokenParser()
+	//time the function
+	start := time.Now()
+	_, err := tp.RunAll(context.TODO(), "A4Fc2pxtyhZs4SUqSf7SvDUVG6Av7sQkKfpjMM42YJar", rpc.CommitmentFinalized)
+	end := time.Now()
+	elapsed := end.Sub(start)
+	log.Info().Msgf("Time taken to get all info: %s", elapsed)
+
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get token info")
 		return
 	}
 
-	result := config.ParseEnv()
-
-	if result == nil {
-		log.Fatal().Msg("Error parsing environment variables. Exiting...")
-		return
-	}
-
-	// ================== Start token processor ==================
+	// ================== Start services ==================
 	var ctx = context.Background()
 	listeners.StartServices(ctx, wg)
 

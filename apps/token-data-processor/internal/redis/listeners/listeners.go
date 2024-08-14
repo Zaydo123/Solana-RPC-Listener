@@ -108,27 +108,22 @@ func StartServices(ctx context.Context, wg *sync.WaitGroup) {
 	// Receive burns messages
 	wg.Add(1)
 	go receiveBurnsMessages(ctx, wg)
-	log.Info().Msg("Burns listener started")
 
 	// Receive new pairs messages
 	wg.Add(1)
 	go receiveNewPairsMessages(ctx, wg)
-	log.Info().Msg("New pairs listener started")
 
 	// Receive parsed pairs messages
 	wg.Add(1)
 	go receiveParsedPairsMessages(ctx, wg)
-	log.Info().Msg("Parsed pairs listener started")
 
 	// Receive prices messages
 	wg.Add(1)
 	go receivePricesMessages(ctx, wg)
-	log.Info().Msg("Prices listener started")
 
 	// Receive swaps messages
 	wg.Add(1)
 	go receiveSwapMessages(ctx, wg)
-	log.Info().Msg("Swaps listener started")
 
 	log.Info().Msg("All services started")
 
