@@ -127,8 +127,11 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                 
                 else:
                     pool_account = accounts[4]
+                    logging.info(f"Pool account: {pool_account}")
                     base = accounts[8]
                     quote = accounts[9]
+                    base_pool_account = accounts[10]
+                    quote_pool_account = accounts[11]
 
                 # Swap base and quote if quote is WRAPPED_SOL_PUBKEY_STRING
                 if base == WRAPPED_SOL_PUBKEY_STRING:
@@ -143,7 +146,7 @@ async def callback_raydium(ctx: AsyncClient, data: str):
 
                 logging.info(f"{Fore.GREEN}New pair found: {base} - {quote}{Fore.RESET}")
 
-                response = NewPairEvent(base, quote, pool_account, token_mint_timestamp)
+                response = NewPairEvent(base, quote, base_pool_account, quote_pool_account, transaction.block_time)
                 redis_client.publish(str(NEW_PAIRS_CHANNEL), str(response))
 
                 subscription_key = f"swaps-{base}-{quote}"
