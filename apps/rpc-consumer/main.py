@@ -146,7 +146,7 @@ async def callback_raydium(ctx: AsyncClient, data: str):
 
                 logging.info(f"{Fore.GREEN}New pair found: {base} - {quote}{Fore.RESET}")
 
-                response = NewPairEvent(base, quote, base_pool_account, quote_pool_account, transaction.block_time)
+                response = NewPairEvent(base, quote, base_pool_account, quote_pool_account, token_mint_timestamp)
                 redis_client.publish(str(NEW_PAIRS_CHANNEL), str(response))
 
                 subscription_key = f"swaps-{base}-{quote}"
