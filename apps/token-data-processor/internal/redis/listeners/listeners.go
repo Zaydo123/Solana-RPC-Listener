@@ -2,17 +2,19 @@ package listeners
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/redis/client"
+	ConsumerEvents "github.com/Zaydo123/token-processor/internal/redis/models"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
 
 var rdb *redis.Client // Redis client
 
-func receiveBurnsMessages(ctx context.Context, wg *sync.WaitGroup) {
+func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup) {
 	// Receive messages from the burns channel
 	defer wg.Done()
 	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.BurnsChannel)
@@ -24,7 +26,20 @@ func receiveBurnsMessages(ctx context.Context, wg *sync.WaitGroup) {
 			log.Error().Err(err).Msg("Error receiving message")
 			return
 		}
-		log.Info().Msgf("Received message: %s", msg.Payload)
+
+		//log.Info().Msgf("Received message: %s", msg.Payload)
+
+		// Unmarshal the entire message directly into a BurnEvent
+		var burnEvent ConsumerEvents.BurnEvent
+		err = json.Unmarshal([]byte(msg.Payload), &burnEvent)
+		if err != nil {
+			log.Error().Err(err).Msg("Error parsing burn event")
+			continue
+		}
+
+		// Log the fully populated BurnEvent, which includes the populated Data field
+		log.Info().Msgf("Parsed BurnEvent: %+v", burnEvent)
+		// TODO: Process the burn event further
 	}
 }
 
@@ -41,41 +56,18 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		log.Info().Msgf("Received message: %s", msg.Payload)
-	}
-}
+		//log.Info().Msgf("Received message: %s", msg.Payload)
 
-func receiveParsedPairsMessages(ctx context.Context, wg *sync.WaitGroup) {
-	// Receive messages from the parsed pairs channel
-	defer wg.Done()
-	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.ParsedPairsChannel)
-
-	// Wait for messages
-	for {
-		msg, err := pubsub.ReceiveMessage(ctx)
+		// Parse the message into a NewPairEvent
+		var newPairEvent ConsumerEvents.NewPairEvent
+		err = json.Unmarshal([]byte(msg.Payload), &newPairEvent)
 		if err != nil {
-			log.Error().Err(err).Msg("Error receiving message")
-			return
+			log.Error().Err(err).Msg("Error parsing new pair event")
+			continue
 		}
 
-		log.Info().Msgf("Received message: %s", msg.Payload)
-	}
-}
-
-func receivePricesMessages(ctx context.Context, wg *sync.WaitGroup) {
-	// Receive messages from the prices channel
-	defer wg.Done()
-	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.PricesChannel)
-
-	// Wait for messages
-	for {
-		msg, err := pubsub.ReceiveMessage(ctx)
-		if err != nil {
-			log.Error().Err(err).Msg("Error receiving message")
-			return
-		}
-
-		log.Info().Msgf("Received message: %s", msg.Payload)
+		log.Info().Msgf("Parsed NewPairEvent: %+v", newPairEvent)
+		// TODO: Process the new pair event further
 	}
 }
 
@@ -92,7 +84,18 @@ func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		log.Info().Msgf("Received message: %s", msg.Payload)
+		//log.Info().Msgf("Received message: %s", msg.Payload)
+
+		// Unmarshal the entire message directly into a SwapEvent
+		var swapEvent ConsumerEvents.SwapEvent
+		err = json.Unmarshal([]byte(msg.Payload), &swapEvent)
+		if err != nil {
+			log.Error().Err(err).Msg("Error parsing swap event")
+			continue
+		}
+
+		log.Info().Msgf("Parsed SwapEvent: %+v", swapEvent)
+		// TODO: Process the swap event further
 	}
 }
 
@@ -107,19 +110,11 @@ func StartServices(ctx context.Context, wg *sync.WaitGroup) {
 
 	// Receive burns messages
 	wg.Add(1)
-	go receiveBurnsMessages(ctx, wg)
+	go receiveBurnMessages(ctx, wg)
 
 	// Receive new pairs messages
 	wg.Add(1)
 	go receiveNewPairsMessages(ctx, wg)
-
-	// Receive parsed pairs messages
-	wg.Add(1)
-	go receiveParsedPairsMessages(ctx, wg)
-
-	// Receive prices messages
-	wg.Add(1)
-	go receivePricesMessages(ctx, wg)
 
 	// Receive swaps messages
 	wg.Add(1)
