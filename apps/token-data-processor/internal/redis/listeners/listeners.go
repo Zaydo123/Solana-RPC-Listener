@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/redis/client"
 	ConsumerEvents "github.com/Zaydo123/token-processor/internal/redis/models"
+	parser "github.com/Zaydo123/token-processor/internal/token/parser"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
@@ -26,8 +31,6 @@ func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup) {
 			log.Error().Err(err).Msg("Error receiving message")
 			return
 		}
-
-		//log.Info().Msgf("Received message: %s", msg.Payload)
 
 		// Unmarshal the entire message directly into a BurnEvent
 		var burnEvent ConsumerEvents.BurnEvent
@@ -50,24 +53,55 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup) {
 
 	// Wait for messages
 	for {
-		msg, err := pubsub.ReceiveMessage(ctx)
-		if err != nil {
-			log.Error().Err(err).Msg("Error receiving message")
+
+		msg, errReceive := pubsub.ReceiveMessage(ctx)
+		if errReceive != nil {
+			log.Error().Err(errReceive).Msg("Error receiving message")
 			return
 		}
 
-		//log.Info().Msgf("Received message: %s", msg.Payload)
-
 		// Parse the message into a NewPairEvent
 		var newPairEvent ConsumerEvents.NewPairEvent
-		err = json.Unmarshal([]byte(msg.Payload), &newPairEvent)
-		if err != nil {
-			log.Error().Err(err).Msg("Error parsing new pair event")
+		errUnmarshal := json.Unmarshal([]byte(msg.Payload), &newPairEvent)
+
+		if errUnmarshal != nil {
+			log.Error().Err(errUnmarshal).Msg("Error parsing new pair event")
 			continue
 		}
 
 		log.Info().Msgf("Parsed NewPairEvent: %+v", newPairEvent)
+
 		// TODO: Process the new pair event further
+		// STEP 1 : Get All Token Info and Parse
+		// STEP 2 : Start Price Service
+		// DONE
+
+		tp := parser.NewTokenParser()
+		//time the function
+		start := time.Now()
+
+		//basepoolaccount string to solana.PublicKey
+		basePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.BasePoolAccount)
+		quotePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.QuotePoolAccount)
+
+		tokenObj, errRunAll := tp.RunAll(context.TODO(), newPairEvent.Data.BaseToken, rpc.CommitmentFinalized, &basePoolAccount, &quotePoolAccount)
+
+		end := time.Now()
+
+		if errRunAll != nil {
+			log.Error().Err(errRunAll).Msg("Failed to get token info")
+			return
+		}
+
+		elapsed := end.Sub(start)
+
+		spew.Dump(tokenObj)6
+
+		log.Info().Msgf("Time taken to get all info: %s", elapsed)
+
+		// Start the price service on a new goroutine
+		// go pricing.GetTokenPriceTask(context.TODO(), *tokenObj)
+
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/redis/listeners"
-	//"github.com/Zaydo123/token-processor/internal/token/models"
 )
 
 func main() {

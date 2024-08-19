@@ -22,6 +22,8 @@ type Config struct {
 	RPCURL             string
 	RPCRateLimitTime   int
 	RPCRateLimitBurst  int
+	PriceInterval      float64
+	PriceFollowTime    float64
 }
 
 var ApplicationConfig Config
@@ -94,23 +96,36 @@ func ParseEnv() *Config {
 	ApplicationConfig.PricesChannel = GetEnv("REDIS_PRICES_CHANNEL")
 	ApplicationConfig.SwapsChannel = GetEnv("REDIS_SWAPS_CHANNEL")
 	ApplicationConfig.RPCURL = GetEnv("HTTP_PROVIDER_MAIN")
-	rateLimitTime, err := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_TIME"))
+	rateLimitTime, err1 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_TIME"))
+	rateLimitBurst, err2 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_BURST"))
+	priceInterval, err3 := strconv.ParseFloat(GetEnv("PRICE_INTERVAL"), 64)
+	priceFollowTime, err4 := strconv.ParseFloat(GetEnv("PRICE_FOLLOW_TIME"), 64)
 
-	if err != nil {
-		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT")
+	if err1 != nil {
+		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT_TIME")
 		return nil
 	}
 
-	ApplicationConfig.RPCRateLimitTime = rateLimitTime
-
-	rateLimitBurst, err := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_BURST"))
-
-	if err != nil {
+	if err2 != nil {
 		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT_BURST")
 		return nil
 	}
 
+	if err3 != nil {
+		log.Fatal().Err(err).Msg("Error parsing PRICE_INTERVAL")
+		return nil
+	}
+
+	if err4 != nil {
+		log.Fatal().Err(err).Msg("Error parsing PRICE_FOLLOW_TIME")
+		return nil
+	}
+
+	ApplicationConfig.RPCRateLimitTime = rateLimitTime
 	ApplicationConfig.RPCRateLimitBurst = rateLimitBurst
+
+	ApplicationConfig.PriceInterval = priceInterval
+	ApplicationConfig.PriceFollowTime = priceFollowTime
 
 	return &ApplicationConfig
 

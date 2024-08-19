@@ -133,9 +133,13 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                     base_pool_account = accounts[10]
                     quote_pool_account = accounts[11]
 
+
                 # Swap base and quote if quote is WRAPPED_SOL_PUBKEY_STRING
                 if base == WRAPPED_SOL_PUBKEY_STRING:
                     base, quote = quote, base
+
+                logging.info(f"Base Pool: {base_pool_account}")
+                logging.info(f"Quote Pool: {quote_pool_account}")
 
                 if base == last_base and quote == last_quote:
                     logging.info(f"{Fore.RED}Pair already exists{Fore.RESET}")
