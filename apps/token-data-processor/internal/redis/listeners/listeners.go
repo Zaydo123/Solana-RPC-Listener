@@ -2,17 +2,26 @@ package listeners
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/redis/client"
+	ConsumerEvents "github.com/Zaydo123/token-processor/internal/redis/models"
+	"github.com/Zaydo123/token-processor/internal/token/models"
+	parser "github.com/Zaydo123/token-processor/internal/token/parser"
+	"github.com/Zaydo123/token-processor/internal/token/prices"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
 
 var rdb *redis.Client // Redis client
 
-func receiveBurnsMessages(ctx context.Context, wg *sync.WaitGroup) {
+func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup) {
 	// Receive messages from the burns channel
 	defer wg.Done()
 	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.BurnsChannel)
@@ -24,58 +33,81 @@ func receiveBurnsMessages(ctx context.Context, wg *sync.WaitGroup) {
 			log.Error().Err(err).Msg("Error receiving message")
 			return
 		}
-		log.Info().Msgf("Received message: %s", msg.Payload)
+
+		// Unmarshal the entire message directly into a BurnEvent
+		var burnEvent ConsumerEvents.BurnEvent
+		err = json.Unmarshal([]byte(msg.Payload), &burnEvent)
+		if err != nil {
+			log.Error().Err(err).Msg("Error parsing burn event")
+			continue
+		}
+
+		// Log the fully populated BurnEvent, which includes the populated Data field
+		log.Info().Msgf("Parsed BurnEvent: %+v", burnEvent)
+		// TODO: Process the burn event further
 	}
 }
 
-func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup) {
+func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]models.Token) {
 	// Receive messages from the new pairs channel
 	defer wg.Done()
 	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.NewPairsChannel)
 
 	// Wait for messages
 	for {
-		msg, err := pubsub.ReceiveMessage(ctx)
-		if err != nil {
-			log.Error().Err(err).Msg("Error receiving message")
+
+		msg, errReceive := pubsub.ReceiveMessage(ctx)
+		if errReceive != nil {
+			log.Error().Err(errReceive).Msg("Error receiving message")
 			return
 		}
 
-		log.Info().Msgf("Received message: %s", msg.Payload)
-	}
-}
+		// Parse the message into a NewPairEvent
+		var newPairEvent ConsumerEvents.NewPairEvent
+		errUnmarshal := json.Unmarshal([]byte(msg.Payload), &newPairEvent)
 
-func receiveParsedPairsMessages(ctx context.Context, wg *sync.WaitGroup) {
-	// Receive messages from the parsed pairs channel
-	defer wg.Done()
-	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.ParsedPairsChannel)
+		if errUnmarshal != nil {
+			log.Error().Err(errUnmarshal).Msg("Error parsing new pair event")
+			continue
+		}
 
-	// Wait for messages
-	for {
-		msg, err := pubsub.ReceiveMessage(ctx)
-		if err != nil {
-			log.Error().Err(err).Msg("Error receiving message")
+		log.Info().Msgf("Parsed NewPairEvent: %+v", newPairEvent)
+
+		// STEP 1 : Get All Token Info and Parse
+
+		tp := parser.NewTokenParser()
+		//time the function
+		start := time.Now()
+
+		//basepoolaccount string to solana.PublicKey
+		basePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.BasePoolAccount)
+		quotePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.QuotePoolAccount)
+
+		tokenObj, errRunAll := tp.RunAll(context.TODO(), newPairEvent.Data.BaseToken, rpc.CommitmentFinalized, &basePoolAccount, &quotePoolAccount)
+
+		end := time.Now()
+
+		if errRunAll != nil {
+			log.Error().Err(errRunAll).Msg("Failed to get token info")
 			return
 		}
 
-		log.Info().Msgf("Received message: %s", msg.Payload)
-	}
-}
+		elapsed := end.Sub(start)
 
-func receivePricesMessages(ctx context.Context, wg *sync.WaitGroup) {
-	// Receive messages from the prices channel
-	defer wg.Done()
-	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.PricesChannel)
+		spew.Dump(tokenObj)
 
-	// Wait for messages
-	for {
-		msg, err := pubsub.ReceiveMessage(ctx)
-		if err != nil {
-			log.Error().Err(err).Msg("Error receiving message")
-			return
-		}
+		log.Info().Msgf("Time taken to get all info: %s", elapsed)
 
-		log.Info().Msgf("Received message: %s", msg.Payload)
+		// STEP 2 : Add to Token Map
+		(*tokenMap)[newPairEvent.Data.BaseToken] = *tokenObj
+
+		// STEP 3 : Start Price Service
+
+		go prices.FollowPrice(context.TODO(), tp, *tokenObj, config.ApplicationConfig.PriceFollowTime, config.ApplicationConfig.PriceInterval)
+
+		// Start the price service on a new goroutine
+		// go pricing.GetTokenPriceTask(context.TODO(), *tokenObj)
+
 	}
 }
 
@@ -92,11 +124,22 @@ func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		log.Info().Msgf("Received message: %s", msg.Payload)
+		//log.Info().Msgf("Received message: %s", msg.Payload)
+
+		// Unmarshal the entire message directly into a SwapEvent
+		var swapEvent ConsumerEvents.SwapEvent
+		err = json.Unmarshal([]byte(msg.Payload), &swapEvent)
+		if err != nil {
+			log.Error().Err(err).Msg("Error parsing swap event")
+			continue
+		}
+
+		log.Info().Msgf("Parsed SwapEvent: %+v", swapEvent)
+		// TODO: Process the swap event further
 	}
 }
 
-func StartServices(ctx context.Context, wg *sync.WaitGroup) {
+func StartServices(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]models.Token) {
 
 	// Initialize the Redis client
 	client.InitRedisClient(config.ApplicationConfig.RedisHost, config.ApplicationConfig.RedisPort, config.ApplicationConfig.RedisPassword, &ctx)
@@ -107,19 +150,11 @@ func StartServices(ctx context.Context, wg *sync.WaitGroup) {
 
 	// Receive burns messages
 	wg.Add(1)
-	go receiveBurnsMessages(ctx, wg)
+	go receiveBurnMessages(ctx, wg)
 
 	// Receive new pairs messages
 	wg.Add(1)
-	go receiveNewPairsMessages(ctx, wg)
-
-	// Receive parsed pairs messages
-	wg.Add(1)
-	go receiveParsedPairsMessages(ctx, wg)
-
-	// Receive prices messages
-	wg.Add(1)
-	go receivePricesMessages(ctx, wg)
+	go receiveNewPairsMessages(ctx, wg, tokenMap)
 
 	// Receive swaps messages
 	wg.Add(1)

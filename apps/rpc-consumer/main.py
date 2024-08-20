@@ -37,6 +37,8 @@ SWAPS_CHANNEL = os.getenv("REDIS_SWAPS_CHANNEL")
 WRAPPED_SOL_PUBKEY_STRING = "So11111111111111111111111111111111111111112"
 RAYDIUM_AMM_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"
 
+TRACK_BURNS = os.getenv("TRACK_BURNS") == "True"
+
 # Redis connection
 redis_client = Redis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), db=os.getenv("REDIS_DB"), decode_responses=True)
 
@@ -125,12 +127,21 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                 
                 else:
                     pool_account = accounts[4]
+                    logging.info(f"Pool account: {pool_account}")
                     base = accounts[8]
                     quote = accounts[9]
+                    base_pool_account = accounts[10]
+                    quote_pool_account = accounts[11]
+
 
                 # Swap base and quote if quote is WRAPPED_SOL_PUBKEY_STRING
                 if base == WRAPPED_SOL_PUBKEY_STRING:
                     base, quote = quote, base
+                    logging.info(f"Swapped base and quote: {base} - {quote}")
+                    base_pool_account, quote_pool_account = quote_pool_account, base_pool_account
+                    
+                logging.info(f"Base Pool: {base_pool_account}")
+                logging.info(f"Quote Pool: {quote_pool_account}")
 
                 if base == last_base and quote == last_quote:
                     logging.info(f"{Fore.RED}Pair already exists{Fore.RESET}")
@@ -141,7 +152,7 @@ async def callback_raydium(ctx: AsyncClient, data: str):
 
                 logging.info(f"{Fore.GREEN}New pair found: {base} - {quote}{Fore.RESET}")
 
-                response = NewPairEvent(base, quote, pool_account, token_mint_timestamp)
+                response = NewPairEvent(base, quote, base_pool_account, quote_pool_account, token_mint_timestamp)
                 redis_client.publish(str(NEW_PAIRS_CHANNEL), str(response))
 
                 subscription_key = f"swaps-{base}-{quote}"
@@ -155,34 +166,35 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                 else:
                     logging.info(f"{Fore.RED}Subscription for {subscription_key} already exists{Fore.RESET}")
             # ---------------------- Burn instruction ----------------------                    
-            if "Burn" in log:
-                signature = Signature.from_string(json_data["result"]["value"]["signature"])
-                try:
-                    res = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed,encoding="jsonParsed")
-                    for instruction in res.value.transaction.meta.inner_instructions:
-                        for i in instruction.instructions:
-                            if type(i)==ParsedInstruction:
-                                if(i.parsed["type"].find("burn") != -1):
-                                    # publish_data = {}
-                                    # publish_data["info"] = i.parsed.get("info")
-                                    # publish_data["block_time"] = res.value.block_time
+            if TRACK_BURNS:
+                if "Burn" in log:
+                    signature = Signature.from_string(json_data["result"]["value"]["signature"])
+                    try:
+                        res = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed,encoding="jsonParsed")
+                        for instruction in res.value.transaction.meta.inner_instructions:
+                            for i in instruction.instructions:
+                                if type(i)==ParsedInstruction:
+                                    if(i.parsed["type"].find("burn") != -1):
+                                        # publish_data = {}
+                                        # publish_data["info"] = i.parsed.get("info")
+                                        # publish_data["block_time"] = res.value.block_time
 
-                                    info = i.parsed.get("info")
-                                    if isinstance(info, dict):
-                                        mint = info.get("mint")
-                                        account = info.get("account")
-                                        authority = info.get("authority")
-                                        amount = info.get("amount")
-                                        publish_data = BurnEvent(mint, account, authority, amount, res.value.block_time)
-                                    else:
-                                        logging.warning("Invalid 'info' format")
-                                        return
+                                        info = i.parsed.get("info")
+                                        if isinstance(info, dict):
+                                            mint = info.get("mint")
+                                            account = info.get("account")
+                                            authority = info.get("authority")
+                                            amount = info.get("amount")
+                                            publish_data = BurnEvent(mint, account, authority, amount, res.value.block_time)
+                                        else:
+                                            logging.warning("Invalid 'info' format")
+                                            return
 
-                                    redis_client.publish(str(BURNS_CHANNEL),str(publish_data))
+                                        redis_client.publish(str(BURNS_CHANNEL),str(publish_data))
 
-                except Exception as e:
-                    logging.error(f"Error fetching transaction: {e}")
-                    return
+                    except Exception as e:
+                        logging.error(f"Error fetching transaction: {e}")
+                        return
 
 
 async def unsubscribe_after_timeout(subscription_key: str, duration: int):
