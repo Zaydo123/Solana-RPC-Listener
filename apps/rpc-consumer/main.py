@@ -137,7 +137,9 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                 # Swap base and quote if quote is WRAPPED_SOL_PUBKEY_STRING
                 if base == WRAPPED_SOL_PUBKEY_STRING:
                     base, quote = quote, base
-
+                    logging.info(f"Swapped base and quote: {base} - {quote}")
+                    base_pool_account, quote_pool_account = quote_pool_account, base_pool_account
+                    
                 logging.info(f"Base Pool: {base_pool_account}")
                 logging.info(f"Quote Pool: {quote_pool_account}")
 

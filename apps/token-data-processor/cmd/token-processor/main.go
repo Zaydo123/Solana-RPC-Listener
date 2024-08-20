@@ -6,6 +6,7 @@ import (
 
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/redis/listeners"
+	"github.com/Zaydo123/token-processor/internal/token/models"
 )
 
 func main() {
@@ -32,6 +33,10 @@ func main() {
 
 	// ================== Start services ==================
 	var ctx = context.Background()
-	listeners.StartServices(ctx, wg)
+
+	tokenMap := make(map[string]models.Token)
+	wg.Add(1)
+	go listeners.StartServices(ctx, wg, &tokenMap)
+	wg.Wait()
 
 }

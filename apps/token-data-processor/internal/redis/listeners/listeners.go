@@ -9,7 +9,9 @@ import (
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/redis/client"
 	ConsumerEvents "github.com/Zaydo123/token-processor/internal/redis/models"
+	"github.com/Zaydo123/token-processor/internal/token/models"
 	parser "github.com/Zaydo123/token-processor/internal/token/parser"
+	"github.com/Zaydo123/token-processor/internal/token/prices"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -46,7 +48,7 @@ func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup) {
+func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]models.Token) {
 	// Receive messages from the new pairs channel
 	defer wg.Done()
 	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.NewPairsChannel)
@@ -71,10 +73,7 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup) {
 
 		log.Info().Msgf("Parsed NewPairEvent: %+v", newPairEvent)
 
-		// TODO: Process the new pair event further
 		// STEP 1 : Get All Token Info and Parse
-		// STEP 2 : Start Price Service
-		// DONE
 
 		tp := parser.NewTokenParser()
 		//time the function
@@ -95,9 +94,16 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup) {
 
 		elapsed := end.Sub(start)
 
-		spew.Dump(tokenObj)6
+		spew.Dump(tokenObj)
 
 		log.Info().Msgf("Time taken to get all info: %s", elapsed)
+
+		// STEP 2 : Add to Token Map
+		(*tokenMap)[newPairEvent.Data.BaseToken] = *tokenObj
+
+		// STEP 3 : Start Price Service
+
+		go prices.FollowPrice(context.TODO(), tp, *tokenObj, config.ApplicationConfig.PriceFollowTime, config.ApplicationConfig.PriceInterval)
 
 		// Start the price service on a new goroutine
 		// go pricing.GetTokenPriceTask(context.TODO(), *tokenObj)
@@ -133,7 +139,7 @@ func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func StartServices(ctx context.Context, wg *sync.WaitGroup) {
+func StartServices(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]models.Token) {
 
 	// Initialize the Redis client
 	client.InitRedisClient(config.ApplicationConfig.RedisHost, config.ApplicationConfig.RedisPort, config.ApplicationConfig.RedisPassword, &ctx)
@@ -148,7 +154,7 @@ func StartServices(ctx context.Context, wg *sync.WaitGroup) {
 
 	// Receive new pairs messages
 	wg.Add(1)
-	go receiveNewPairsMessages(ctx, wg)
+	go receiveNewPairsMessages(ctx, wg, tokenMap)
 
 	// Receive swaps messages
 	wg.Add(1)

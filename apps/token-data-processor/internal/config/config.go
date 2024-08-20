@@ -22,8 +22,8 @@ type Config struct {
 	RPCURL             string
 	RPCRateLimitTime   int
 	RPCRateLimitBurst  int
-	PriceInterval      float64
-	PriceFollowTime    float64
+	PriceInterval      int
+	PriceFollowTime    int
 }
 
 var ApplicationConfig Config
@@ -98,8 +98,8 @@ func ParseEnv() *Config {
 	ApplicationConfig.RPCURL = GetEnv("HTTP_PROVIDER_MAIN")
 	rateLimitTime, err1 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_TIME"))
 	rateLimitBurst, err2 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_BURST"))
-	priceInterval, err3 := strconv.ParseFloat(GetEnv("PRICE_INTERVAL"), 64)
-	priceFollowTime, err4 := strconv.ParseFloat(GetEnv("PRICE_FOLLOW_TIME"), 64)
+	priceInterval, err3 := strconv.Atoi(GetEnv("PRICE_INTERVAL"))
+	priceFollowTime, err4 := strconv.Atoi(GetEnv("PRICE_FOLLOW_TIME"))
 
 	if err1 != nil {
 		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT_TIME")

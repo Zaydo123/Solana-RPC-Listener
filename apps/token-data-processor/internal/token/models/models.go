@@ -3,6 +3,7 @@ package models
 import (
 	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
+	"github.com/shopspring/decimal"
 )
 
 type LargestHolder struct {
@@ -14,7 +15,7 @@ type LargestHolders struct {
 	//list of largest holders
 	Holders                []LargestHolder
 	TopOwnershipPercentage float64
-	Timestamp              int64 //date recorded
+	Timestamp              float64 //date recorded
 }
 
 type TokenStandard bin.BorshEnum
@@ -66,12 +67,12 @@ type Metadata struct {
 // times are in unix time
 type Volume struct {
 	Volume float64
-	Time   int64
+	Time   float64
 }
 
 type Price struct {
-	Price float64
-	Time  int64
+	Price decimal.Decimal
+	Time  float64
 }
 
 type Token struct {
@@ -90,11 +91,11 @@ type Token struct {
 	QuotePoolAccount solana.PublicKey
 	Owner            string
 	IsInitialized    bool
-	IPO              int64 //date
+	IPO              float64 //date
 	LargestHolders   []LargestHolders
 	TotalBurned      int64
-	LastUpdated      int64 //date
-	LastCacheUpdate  int64 //date
+	LastUpdated      float64 //date
+	LastCacheUpdate  float64 //date
 }
 
 // ============================ Accessors ============================
@@ -102,7 +103,7 @@ type Token struct {
 // ================== Price Access  ==================
 
 // Get Most Recent Price - float64
-func (t *Token) GetMostRecentPrice() float64 {
+func (t *Token) GetMostRecentPrice() decimal.Decimal {
 	return t.Prices[len(t.Prices)-1].Price
 }
 
@@ -145,15 +146,15 @@ Returns:
 	price (float64): price at the time
 	found (bool): if the time was found
 */
-func (t *Token) GetPriceAtTime(time int64) (float64, bool) {
+func (t *Token) GetPriceAtTime(time float64) (decimal.Decimal, bool) {
 	// its likely not going to find a time at the exact time so return the price of the most recent time before the time
 	for i := len(t.Prices) - 1; i >= 0; i-- {
 		if t.Prices[i].Time <= time {
 			return t.Prices[i].Price, true
 		}
 	}
-
-	return 0, false
+	zero := decimal.NewFromInt(0)
+	return zero, false
 }
 
 // Get Volume at Time
@@ -164,7 +165,7 @@ Returns:
 	volume (float64): volume at the time
 	found (bool): if the time was found
 */
-func (t *Token) GetVolumeAtTime(time int64) (float64, bool) {
+func (t *Token) GetVolumeAtTime(time float64) (float64, bool) {
 	// its likely not going to find a time at the exact time so return the volume of the most recent time before the time
 	for i := len(t.Volumes) - 1; i >= 0; i-- {
 		if t.Volumes[i].Time <= time {
@@ -183,7 +184,7 @@ Returns:
 	percentage (float64): top holder ownership percentage at the time
 	found (bool): if the time was found
 */
-func (t *Token) GetTopHolderOwnershipPercentageAtTime(time int64) (float64, bool) {
+func (t *Token) GetTopHolderOwnershipPercentageAtTime(time float64) (float64, bool) {
 	// its likely not going to find a time at the exact time so return the ownership percentage of the most recent time before the time
 	for i := len(t.LargestHolders) - 1; i >= 0; i-- {
 		if t.LargestHolders[i].Timestamp <= time {
@@ -194,7 +195,7 @@ func (t *Token) GetTopHolderOwnershipPercentageAtTime(time int64) (float64, bool
 	return 0, false
 }
 
-func (t *Token) GetTopHoldersAtTime(time int64) ([]LargestHolder, bool) {
+func (t *Token) GetTopHoldersAtTime(time float64) ([]LargestHolder, bool) {
 	// its likely not going to find a time at the exact time so return the ownership percentage of the most recent time before the time
 	for i := len(t.LargestHolders) - 1; i >= 0; i-- {
 		if t.LargestHolders[i].Timestamp <= time {
@@ -215,11 +216,12 @@ Returns:
 	price (float64): price at the index
 	found (bool): if the index was found
 */
-func (t *Token) GetPriceAtIndex(index int) (float64, bool) {
+func (t *Token) GetPriceAtIndex(index int) (decimal.Decimal, bool) {
 	if index < len(t.Prices) {
 		return t.Prices[index].Price, true
 	}
-	return 0, false
+	zero := decimal.NewFromInt(0)
+	return zero, false
 }
 
 // Get Volume at Index
@@ -257,4 +259,50 @@ func (t *Token) GetTopHoldersAtIndex(index int) ([]LargestHolder, bool) {
 		return t.LargestHolders[index].Holders, true
 	}
 	return nil, false
+}
+
+// ============================ Mutators ============================
+
+// ================== Price Mutators  ==================
+// Add Price
+func (t *Token) AddPrice(price decimal.Decimal, time float64) {
+	t.Prices = append(t.Prices, Price{
+		Price: price,
+		Time:  time,
+	})
+}
+
+// ================== Volume Mutators  ==================
+// Add Volume
+func (t *Token) AddVolume(volume float64, time float64) {
+	t.Volumes = append(t.Volumes, Volume{
+		Volume: volume,
+		Time:   time,
+	})
+}
+
+// ================ Holder State Mutators  ===============
+// Add Top Holder
+func (t *Token) AddTopHolder(holders LargestHolders) {
+	t.LargestHolders = append(t.LargestHolders, holders)
+}
+
+// ================== Volume Mutators  ==================
+// Automatically update and calculate the volume of the token
+// Sums up the amount of all previous volumes and adds the new volume
+/*
+Params:
+	volume: new volume to be added
+	time: time of the new volume
+*/
+func (t *Token) AddVolumeAuto(volume float64, time float64) {
+	// get the most recent volume
+	mostRecentVolume := t.GetMostRecentVolume()
+
+	// add the new volume to the most recent volume
+	newVolume := mostRecentVolume + volume
+
+	// add the new volume to the volumes list
+	t.AddVolume(newVolume, time)
+
 }

@@ -121,3 +121,7 @@ func TestGetJustTokenPrice(t *testing.T) {
 		t.Fatalf("Failed to fetch token price or price is zero")
 	}
 }
+
+// ================== Setters ==================
+
+// SetPrices - Set the prices of the token

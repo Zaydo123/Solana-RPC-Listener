@@ -30,6 +30,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/redis/go-redis/v9 v9.6.1 // indirect
 	github.com/rs/zerolog v1.33.0 // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
 	go.mongodb.org/mongo-driver v1.16.1 // indirect

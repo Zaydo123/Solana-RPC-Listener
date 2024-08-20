@@ -15,6 +15,7 @@ import (
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/rs/zerolog/log"
+	"github.com/shopspring/decimal"
 )
 
 // TokenParser struct to manage methods related to token parsing
@@ -36,21 +37,26 @@ func trimNullBytes(input string) string {
 var nullClient rpc.Client = rpc.Client{}
 
 // GetPrice fetches the price of the token by comparing the base and quote pools.
-func (tp *TokenParser) GetPrice(ctx context.Context, token models.Token) float64 {
+func (tp *TokenParser) GetPrice(ctx context.Context, token models.Token) decimal.Decimal {
 
+	zeroPrice := decimal.NewFromFloat(0.0)
 	if *tp.client == nullClient || tp.client == nil {
 		log.Error().Msg("RPC client is nil")
-		return 0
+		return zeroPrice
 	}
 
 	if !tp.validateTokenPools(token) {
-		return 0
+		return zeroPrice
 	}
 
 	basePoolAmt, quotePoolAmt := tp.fetchPoolBalancesConcurrently(ctx, token)
 	if token.BasePoolAccount.IsZero() || token.QuotePoolAccount.IsZero() {
 		log.Error().Msg("BasePoolAccount or QuotePoolAccount is not set (zero value)")
-		return 0
+		return zeroPrice
+	}
+
+	if basePoolAmt == 0 || quotePoolAmt == 0 {
+		return zeroPrice
 	}
 
 	price := tp.calculateTokenPrice(basePoolAmt, quotePoolAmt, token.Metadata.Data.Name)
@@ -134,9 +140,8 @@ func (tp *TokenParser) fetchSinglePoolBalance(ctx context.Context, poolAccount s
 }
 
 // calculateTokenPrice calculates the token price using the constant product formula and logs the result.
-func (tp *TokenParser) calculateTokenPrice(basePoolAmt, quotePoolAmt float64, tokenName string) float64 {
-	price := quotePoolAmt / basePoolAmt
-	// log.Info().Msgf("Calculated price of %s: %f", tokenName, price)
+func (tp *TokenParser) calculateTokenPrice(basePoolAmt, quotePoolAmt float64, tokenName string) decimal.Decimal {
+	price := decimal.NewFromFloat(quotePoolAmt).Div(decimal.NewFromFloat(basePoolAmt))
 	return price
 }
 
@@ -212,7 +217,7 @@ func (tp *TokenParser) GetInfo(ctx context.Context, pubkey string, commitment rp
 		FreezeAuthority: solana.PublicKey{}, // default to empty if nil
 		MintAuthority:   solana.PublicKey{}, // default to empty if nil
 		IsInitialized:   mint.IsInitialized,
-		LastUpdated:     time.Now().Unix(),
+		LastUpdated:     float64(time.Now().Unix()),
 		Owner:           owner.String(),
 	}
 
@@ -236,7 +241,7 @@ func (tp *TokenParser) GetLargestHolders(ctx context.Context, token *models.Toke
 	largestAccounts := largestAccountsReq.Value
 	largestHolders := models.LargestHolders{
 		Holders:   []models.LargestHolder{},
-		Timestamp: time.Now().Unix(),
+		Timestamp: float64(time.Now().Unix()),
 	}
 
 	var sumOwned float64 = 0.0
@@ -274,7 +279,7 @@ func (tp *TokenParser) RunAll(ctx context.Context, pubkey string, commitment rpc
 	var wg sync.WaitGroup
 	var meta *models.Metadata
 	var holders *models.LargestHolders
-	var price float64
+	var price decimal.Decimal
 	var metaErr, holdersErr error
 	var mu sync.Mutex
 
@@ -322,10 +327,11 @@ func (tp *TokenParser) RunAll(ctx context.Context, pubkey string, commitment rpc
 	}
 
 	// Assemble the final token object
+	token.AddTopHolder(*holders)
 	token.Metadata = *meta
-	token.LargestHolders = append(token.LargestHolders, *holders)
-	token.Prices = append(token.Prices, models.Price{Price: price, Time: time.Now().Unix()})
+	if basePoolAccount != nil && quotePoolAccount != nil {
+		token.AddPrice(price, float64(time.Now().Unix())) // price isn't using block time, but current time
+	}
 
-	// log.Info().Msg("All data fetched successfully")
 	return token, nil
 }
