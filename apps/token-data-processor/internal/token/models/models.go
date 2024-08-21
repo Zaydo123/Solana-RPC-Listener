@@ -66,8 +66,16 @@ type Metadata struct {
 // struct for volumes that keeps markers of time and volume at that time.
 // times are in unix time
 type Volume struct {
-	Volume float64
-	Time   float64
+	Volume     float64
+	BuyVolume  float64
+	SellVolume float64
+	Time       float64
+}
+
+type TotalVolume struct {
+	TotalVolume     float64
+	TotalBuyVolume  float64
+	TotalSellVolume float64
 }
 
 type Price struct {
@@ -84,7 +92,10 @@ type Token struct {
 	Supply           uint64
 	Decimals         uint8
 	Prices           []Price
-	Volumes          []Volume
+	Volumes          []Volume // note: the volumes are inexact because transactions are not retroactively analyzed. only swaps after the token is detected are recorded
+	TotalVolume      TotalVolume
+	NumberOfBuys     uint64
+	NumberOfSells    uint64
 	FreezeAuthority  solana.PublicKey `bin:"optional"`
 	MintAuthority    solana.PublicKey `bin:"optional"`
 	BasePoolAccount  solana.PublicKey
@@ -94,7 +105,7 @@ type Token struct {
 	IPO              float64 //date
 	LargestHolders   []LargestHolders
 	TotalBurned      int64
-	LastUpdated      float64 //date
+	LastUpdated      int64   //date
 	LastCacheUpdate  float64 //date
 }
 
@@ -108,20 +119,31 @@ func (t *Token) GetMostRecentPrice() decimal.Decimal {
 }
 
 // Get Most Recent Price Object (Price, Time)
-func (t *Token) GetMostRecentPriceObject() Price {
-	return t.Prices[len(t.Prices)-1]
+func (t *Token) GetMostRecentPriceObject() *Price {
+	return &t.Prices[len(t.Prices)-1]
 }
 
 // ================== Volume Access  ==================
 
 // Get Most Recent Volume - float64
+// Returns the most recent volume or -1 if there are no volumes
 func (t *Token) GetMostRecentVolume() float64 {
+
+	if len(t.Volumes) == 0 {
+		return -1
+	}
+
 	return t.Volumes[len(t.Volumes)-1].Volume
 }
 
 // Get Most Recent Volume Object (Volume, Time)
-func (t *Token) GetMostRecentVolumeObject() Volume {
-	return t.Volumes[len(t.Volumes)-1]
+// Returns the most recent volume object or nil if there are no volumes
+func (t *Token) GetMostRecentVolumeObject() *Volume {
+	lenV := len(t.Volumes)
+	if lenV == 0 {
+		return nil
+	}
+	return &t.Volumes[lenV-1]
 }
 
 // ================== Holder State Access  ==================
@@ -273,36 +295,34 @@ func (t *Token) AddPrice(price decimal.Decimal, time float64) {
 }
 
 // ================== Volume Mutators  ==================
-// Add Volume
-func (t *Token) AddVolume(volume float64, time float64) {
+// AddVolume
+/*
+Description: Adds a volume to the token and updates the total volumes
+Params:
+	time: unix time in float64
+	buyVolume: buy volume
+	sellVolume: sell volume
+*/
+func (t *Token) AddVolume(time float64, buyVolume float64, sellVolume float64) {
+
+	buyPlusSell := buyVolume + sellVolume
+
 	t.Volumes = append(t.Volumes, Volume{
-		Volume: volume,
-		Time:   time,
+		Volume:     buyPlusSell, //volume only for volume period
+		Time:       time,
+		BuyVolume:  buyVolume,
+		SellVolume: sellVolume,
 	})
+
+	//update total volume
+	t.TotalVolume.TotalBuyVolume += buyVolume
+	t.TotalVolume.TotalSellVolume += sellVolume
+	t.TotalVolume.TotalVolume += buyPlusSell
+
 }
 
 // ================ Holder State Mutators  ===============
 // Add Top Holder
 func (t *Token) AddTopHolder(holders LargestHolders) {
 	t.LargestHolders = append(t.LargestHolders, holders)
-}
-
-// ================== Volume Mutators  ==================
-// Automatically update and calculate the volume of the token
-// Sums up the amount of all previous volumes and adds the new volume
-/*
-Params:
-	volume: new volume to be added
-	time: time of the new volume
-*/
-func (t *Token) AddVolumeAuto(volume float64, time float64) {
-	// get the most recent volume
-	mostRecentVolume := t.GetMostRecentVolume()
-
-	// add the new volume to the most recent volume
-	newVolume := mostRecentVolume + volume
-
-	// add the new volume to the volumes list
-	t.AddVolume(newVolume, time)
-
 }
