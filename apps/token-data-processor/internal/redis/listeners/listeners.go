@@ -86,6 +86,7 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 		quotePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.QuotePoolAccount)
 
 		tokenObj, errRunAll := tp.RunAll(context.TODO(), newPairEvent.Data.BaseToken, rpc.CommitmentFinalized, &basePoolAccount, &quotePoolAccount)
+		tokenObj.IPO = newPairEvent.Data.BlockTime
 
 		end := time.Now()
 

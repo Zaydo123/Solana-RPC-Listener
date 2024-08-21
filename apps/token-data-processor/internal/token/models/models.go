@@ -3,6 +3,7 @@ package models
 import (
 	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
+	"github.com/rs/zerolog/log"
 	"github.com/shopspring/decimal"
 )
 
@@ -66,16 +67,16 @@ type Metadata struct {
 // struct for volumes that keeps markers of time and volume at that time.
 // times are in unix time
 type Volume struct {
-	Volume     float64
-	BuyVolume  float64
-	SellVolume float64
+	Volume     decimal.Decimal
+	BuyVolume  decimal.Decimal
+	SellVolume decimal.Decimal
 	Time       float64
 }
 
 type TotalVolume struct {
-	TotalVolume     float64
-	TotalBuyVolume  float64
-	TotalSellVolume float64
+	TotalVolume     decimal.Decimal
+	TotalBuyVolume  decimal.Decimal
+	TotalSellVolume decimal.Decimal
 }
 
 type Price struct {
@@ -127,10 +128,10 @@ func (t *Token) GetMostRecentPriceObject() *Price {
 
 // Get Most Recent Volume - float64
 // Returns the most recent volume or -1 if there are no volumes
-func (t *Token) GetMostRecentVolume() float64 {
+func (t *Token) GetMostRecentVolume() decimal.Decimal {
 
 	if len(t.Volumes) == 0 {
-		return -1
+		return decimal.NewFromInt(-1)
 	}
 
 	return t.Volumes[len(t.Volumes)-1].Volume
@@ -187,7 +188,7 @@ Returns:
 	volume (float64): volume at the time
 	found (bool): if the time was found
 */
-func (t *Token) GetVolumeAtTime(time float64) (float64, bool) {
+func (t *Token) GetVolumeAtTime(time float64) (decimal.Decimal, bool) {
 	// its likely not going to find a time at the exact time so return the volume of the most recent time before the time
 	for i := len(t.Volumes) - 1; i >= 0; i-- {
 		if t.Volumes[i].Time <= time {
@@ -195,7 +196,7 @@ func (t *Token) GetVolumeAtTime(time float64) (float64, bool) {
 		}
 	}
 
-	return 0, false
+	return decimal.NewFromInt(0), false
 }
 
 // Get Top Holder Ownership Percentage at Time
@@ -254,11 +255,11 @@ Returns:
 	volume (float64): volume at the index
 	found (bool): if the index was found
 */
-func (t *Token) GetVolumeAtIndex(index int) (float64, bool) {
+func (t *Token) GetVolumeAtIndex(index int) (decimal.Decimal, bool) {
 	if index < len(t.Volumes) {
 		return t.Volumes[index].Volume, true
 	}
-	return 0, false
+	return decimal.NewFromInt(0), false
 }
 
 // Get Top Holder Ownership Percentage at Index
@@ -303,9 +304,9 @@ Params:
 	buyVolume: buy volume
 	sellVolume: sell volume
 */
-func (t *Token) AddVolume(time float64, buyVolume float64, sellVolume float64) {
+func (t *Token) AddVolume(time float64, buyVolume decimal.Decimal, sellVolume decimal.Decimal) {
 
-	buyPlusSell := buyVolume + sellVolume
+	var buyPlusSell decimal.Decimal = buyVolume.Add(sellVolume)
 
 	t.Volumes = append(t.Volumes, Volume{
 		Volume:     buyPlusSell, //volume only for volume period
@@ -315,10 +316,28 @@ func (t *Token) AddVolume(time float64, buyVolume float64, sellVolume float64) {
 	})
 
 	//update total volume
-	t.TotalVolume.TotalBuyVolume += buyVolume
-	t.TotalVolume.TotalSellVolume += sellVolume
-	t.TotalVolume.TotalVolume += buyPlusSell
+	t.TotalVolume.TotalVolume = t.TotalVolume.TotalVolume.Add(buyPlusSell)
+	t.TotalVolume.TotalBuyVolume = t.TotalVolume.TotalBuyVolume.Add(buyVolume)
+	t.TotalVolume.TotalSellVolume = t.TotalVolume.TotalSellVolume.Add(sellVolume)
 
+}
+
+func (t *Token) AddToCurrentVolumePeriod(buyVolume decimal.Decimal, sellVolume decimal.Decimal) {
+	mostRecentVolume := t.GetMostRecentVolumeObject()
+	if mostRecentVolume == nil {
+		log.Error().Msg("Trying to add to current volume period but there are no volume periods")
+		return
+	}
+
+	tvToAdd := buyVolume.Add(sellVolume)
+	//for the current volume period, add the buy and sell volumes
+	mostRecentVolume.BuyVolume = mostRecentVolume.BuyVolume.Add(buyVolume)
+	mostRecentVolume.SellVolume = mostRecentVolume.SellVolume.Add(sellVolume)
+	mostRecentVolume.Volume = mostRecentVolume.Volume.Add(tvToAdd)
+	// also increment total volumes
+	t.TotalVolume.TotalVolume = t.TotalVolume.TotalVolume.Add(tvToAdd)
+	t.TotalVolume.TotalBuyVolume = t.TotalVolume.TotalBuyVolume.Add(buyVolume)
+	t.TotalVolume.TotalSellVolume = t.TotalVolume.TotalSellVolume.Add(sellVolume)
 }
 
 // ================ Holder State Mutators  ===============

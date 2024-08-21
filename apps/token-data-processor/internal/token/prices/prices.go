@@ -31,15 +31,6 @@ func FollowPrice(ctx context.Context, tokenParser *parser.TokenParser, tokenObj 
 		tokenObj.LastUpdated = time.Now().Unix()
 
 		log.Info().Msgf("Price: %s", price.String())
-		// Log total volume
-		log.Info().Msgf("Total Volume: %f", tokenObj.TotalVolume.TotalVolume)
-		// log current period volume
-		volObj := tokenObj.GetMostRecentVolumeObject()
-		if volObj != nil {
-			log.Info().Msgf("Current Period Volume: %f", volObj.Volume)
-		} else {
-			log.Info().Msg("No volume data yet")
-		}
 
 		// Check if the follow time has elapsed
 		if followTime <= 0 {
