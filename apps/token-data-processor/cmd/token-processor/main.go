@@ -34,7 +34,10 @@ func main() {
 	// ================== Start services ==================
 	var ctx = context.Background()
 
-	tokenMap := make(map[string]models.Token)
+	// tokenMap := make(map[string] models.Token)
+	// token model should be a pointer
+	tokenMap := make(map[string]*models.Token)
+
 	wg.Add(1)
 	go listeners.StartServices(ctx, wg, &tokenMap)
 	wg.Wait()

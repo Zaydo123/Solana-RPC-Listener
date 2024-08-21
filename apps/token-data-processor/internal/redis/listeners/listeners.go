@@ -12,6 +12,8 @@ import (
 	"github.com/Zaydo123/token-processor/internal/token/models"
 	parser "github.com/Zaydo123/token-processor/internal/token/parser"
 	"github.com/Zaydo123/token-processor/internal/token/prices"
+	"github.com/Zaydo123/token-processor/internal/token/swaps"
+	topownership "github.com/Zaydo123/token-processor/internal/token/top-ownership"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -48,7 +50,7 @@ func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]models.Token) {
+func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]*models.Token) {
 	// Receive messages from the new pairs channel
 	defer wg.Done()
 	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.NewPairsChannel)
@@ -99,19 +101,26 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 		log.Info().Msgf("Time taken to get all info: %s", elapsed)
 
 		// STEP 2 : Add to Token Map
-		(*tokenMap)[newPairEvent.Data.BaseToken] = *tokenObj
+		(*tokenMap)[newPairEvent.Data.BaseToken] = tokenObj
 
 		// STEP 3 : Start Price Service
+		deadlinePrice := time.Now().Add(time.Duration(config.ApplicationConfig.PriceFollowTime) * time.Second * 5) // 5 times the follow time as deadline (in case of any issues)
+		contextPrice, cancelPrice := context.WithDeadline(ctx, deadlinePrice)
+		defer cancelPrice()
+		go prices.FollowPrice(contextPrice, tp, tokenObj, config.ApplicationConfig.PriceFollowTime, config.ApplicationConfig.PriceInterval)
 
-		go prices.FollowPrice(context.TODO(), tp, *tokenObj, config.ApplicationConfig.PriceFollowTime, config.ApplicationConfig.PriceInterval)
+		// STEP 4 : Start Top Ownership Service
+		deadlineOwner := time.Now().Add(time.Duration(config.ApplicationConfig.OwnersFollowTime) * time.Second * 5) // 5 times the follow time as deadline (in case of any issues)
+		contextOwner, cancel := context.WithDeadline(ctx, deadlineOwner)
+		defer cancel()
+		go topownership.FollowTopOwnership(contextOwner, tp, tokenObj, config.ApplicationConfig.OwnersFollowTime, config.ApplicationConfig.OwnersInterval)
 
-		// Start the price service on a new goroutine
-		// go pricing.GetTokenPriceTask(context.TODO(), *tokenObj)
+		// Done
 
 	}
 }
 
-func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup) {
+func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]*models.Token) {
 	// Receive messages from the swaps channel
 	defer wg.Done()
 	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.SwapsChannel)
@@ -134,12 +143,20 @@ func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup) {
 			continue
 		}
 
-		log.Info().Msgf("Parsed SwapEvent: %+v", swapEvent)
+		// log.Info().Msgf("Parsed SwapEvent: %+v", swapEvent)
 		// TODO: Process the swap event further
+
+		//find token in token map and process swap event for that token
+		token, ok := (*tokenMap)[swapEvent.Data.TokenAddress]
+		if !ok {
+			log.Error().Msg("Token not found in token map")
+			continue
+		}
+		swaps.ProcessSwapEvent(token, swapEvent)
 	}
 }
 
-func StartServices(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]models.Token) {
+func StartServices(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]*models.Token) {
 
 	// Initialize the Redis client
 	client.InitRedisClient(config.ApplicationConfig.RedisHost, config.ApplicationConfig.RedisPort, config.ApplicationConfig.RedisPassword, &ctx)
@@ -158,7 +175,7 @@ func StartServices(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string
 
 	// Receive swaps messages
 	wg.Add(1)
-	go receiveSwapMessages(ctx, wg)
+	go receiveSwapMessages(ctx, wg, tokenMap)
 
 	log.Info().Msg("All services started")
 

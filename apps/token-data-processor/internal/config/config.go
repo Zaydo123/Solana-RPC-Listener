@@ -24,6 +24,8 @@ type Config struct {
 	RPCRateLimitBurst  int
 	PriceInterval      int
 	PriceFollowTime    int
+	OwnersFollowTime   int
+	OwnersInterval     int
 }
 
 var ApplicationConfig Config
@@ -100,6 +102,8 @@ func ParseEnv() *Config {
 	rateLimitBurst, err2 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_BURST"))
 	priceInterval, err3 := strconv.Atoi(GetEnv("PRICE_INTERVAL"))
 	priceFollowTime, err4 := strconv.Atoi(GetEnv("PRICE_FOLLOW_TIME"))
+	ownersFollowTime, err5 := strconv.Atoi(GetEnv("OWNERS_FOLLOW_TIME"))
+	ownersInterval, err6 := strconv.Atoi(GetEnv("OWNERS_INTERVAL"))
 
 	if err1 != nil {
 		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT_TIME")
@@ -121,11 +125,24 @@ func ParseEnv() *Config {
 		return nil
 	}
 
+	if err5 != nil {
+		log.Fatal().Err(err).Msg("Error parsing OWNERS_FOLLOW_TIME")
+		return nil
+	}
+
+	if err6 != nil {
+		log.Fatal().Err(err).Msg("Error parsing OWNERS_INTERVAL")
+		return nil
+	}
+
 	ApplicationConfig.RPCRateLimitTime = rateLimitTime
 	ApplicationConfig.RPCRateLimitBurst = rateLimitBurst
 
 	ApplicationConfig.PriceInterval = priceInterval
 	ApplicationConfig.PriceFollowTime = priceFollowTime
+
+	ApplicationConfig.OwnersFollowTime = ownersFollowTime
+	ApplicationConfig.OwnersInterval = ownersInterval
 
 	return &ApplicationConfig
 

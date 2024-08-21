@@ -217,7 +217,7 @@ func (tp *TokenParser) GetInfo(ctx context.Context, pubkey string, commitment rp
 		FreezeAuthority: solana.PublicKey{}, // default to empty if nil
 		MintAuthority:   solana.PublicKey{}, // default to empty if nil
 		IsInitialized:   mint.IsInitialized,
-		LastUpdated:     float64(time.Now().Unix()),
+		LastUpdated:     time.Now().Unix(),
 		Owner:           owner.String(),
 	}
 

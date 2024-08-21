@@ -161,7 +161,8 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                     handler_swaps = TransactionSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER_TRANSACTIONS"), "http":os.environ.get("HTTP_PROVIDER_TRANSACTIONS")}, filter=pool_account_filter)
                     subscriptions[subscription_key] = handler_swaps
                     asyncio.create_task(handler_swaps.listen(swap_callback, base)) # target_token is the base token in the pair (makes it easier to filter out noise in swap transactions)
-                    asyncio.create_task(unsubscribe_after_timeout(subscription_key, duration=50)) 
+                    followLen = int(os.getenv("PRICE_FOLLOW_TIME")) if os.getenv("PRICE_FOLLOW_TIME") is not None else 60
+                    asyncio.create_task(unsubscribe_after_timeout(subscription_key, duration=followLen))
                     logging.info(f"Subscribed to {subscription_key}")
                 else:
                     logging.info(f"{Fore.RED}Subscription for {subscription_key} already exists{Fore.RESET}")

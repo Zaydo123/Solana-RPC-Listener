@@ -10,11 +10,11 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-func FollowPrice(ctx context.Context, tokenParser *parser.TokenParser, tokenObj models.Token, followTime int, interval int) {
-	// Follow the price for a given time
-	// The followTime is the time in seconds to follow the price
-	// The interval is the time in seconds to wait between each price fetch
-	// Returns true if the price is followed for the given time, false otherwise
+// Follow the price for a given time
+// The followTime is the time in seconds to follow the price
+// The interval is the time in seconds to wait between each price fetch
+
+func FollowPrice(ctx context.Context, tokenParser *parser.TokenParser, tokenObj *models.Token, followTime int, interval int) {
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	var price decimal.Decimal
 	defer ticker.Stop()
@@ -24,10 +24,22 @@ func FollowPrice(ctx context.Context, tokenParser *parser.TokenParser, tokenObj 
 		followTime -= interval
 
 		// Get the token price and add it to the token object
-		price = tokenParser.GetPrice(ctx, tokenObj)
+		price = tokenParser.GetPrice(ctx, *tokenObj)
 		tokenObj.AddPrice(price, float64(time.Now().Unix()))
 
+		// TODO: REPLACE After Task 2 in queue
+		tokenObj.LastUpdated = time.Now().Unix()
+
 		log.Info().Msgf("Price: %s", price.String())
+		// Log total volume
+		log.Info().Msgf("Total Volume: %f", tokenObj.TotalVolume.TotalVolume)
+		// log current period volume
+		volObj := tokenObj.GetMostRecentVolumeObject()
+		if volObj != nil {
+			log.Info().Msgf("Current Period Volume: %f", volObj.Volume)
+		} else {
+			log.Info().Msg("No volume data yet")
+		}
 
 		// Check if the follow time has elapsed
 		if followTime <= 0 {
