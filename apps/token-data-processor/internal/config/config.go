@@ -11,21 +11,24 @@ import (
 type Config struct {
 	// Configuration for the token processor
 	// The configuration is loaded from environment variables
-	RedisHost          string
-	RedisPort          int
-	RedisPassword      string
-	BurnsChannel       string
-	NewPairsChannel    string
-	ParsedPairsChannel string
-	PricesChannel      string
-	SwapsChannel       string
-	RPCURL             string
-	RPCRateLimitTime   int
-	RPCRateLimitBurst  int
-	PriceInterval      int
-	PriceFollowTime    int
-	OwnersFollowTime   int
-	OwnersInterval     int
+	RedisHost             string
+	RedisPort             int
+	RedisPassword         string
+	CacheTimeoutSeconds   int
+	StaleIfDeadForSeconds int
+	CacheTTLMinutes       int
+	BurnsChannel          string
+	NewPairsChannel       string
+	ParsedPairsChannel    string
+	PricesChannel         string
+	SwapsChannel          string
+	RPCURL                string
+	RPCRateLimitTime      int
+	RPCRateLimitBurst     int
+	PriceInterval         int
+	PriceFollowTime       int
+	OwnersFollowTime      int
+	OwnersInterval        int
 }
 
 var ApplicationConfig Config
@@ -104,6 +107,10 @@ func ParseEnv() *Config {
 	priceFollowTime, err4 := strconv.Atoi(GetEnv("PRICE_FOLLOW_TIME"))
 	ownersFollowTime, err5 := strconv.Atoi(GetEnv("OWNERS_FOLLOW_TIME"))
 	ownersInterval, err6 := strconv.Atoi(GetEnv("OWNERS_INTERVAL"))
+	cacheTimeoutSeconds, err7 := strconv.Atoi(GetEnv("CACHE_TIMEOUT_SECONDS"))
+	staleIfDeadForSeconds, err8 := strconv.Atoi(GetEnv("STALE_IF_DEAD_FOR_SECONDS"))
+
+	cacheTTLMinutes, err9 := strconv.Atoi(GetEnv("CACHE_TTL_MINUTES"))
 
 	if err1 != nil {
 		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT_TIME")
@@ -135,6 +142,21 @@ func ParseEnv() *Config {
 		return nil
 	}
 
+	if err7 != nil {
+		log.Fatal().Err(err).Msg("Error parsing CACHE_TIMEOUT_SECONDS")
+		return nil
+	}
+
+	if err8 != nil {
+		log.Fatal().Err(err).Msg("Error parsing STALE_IF_DEAD_FOR_SECONDS")
+		return nil
+	}
+
+	if err9 != nil {
+		log.Fatal().Err(err).Msg("Error parsing CACHE_TTL_MINUTES")
+		return nil
+	}
+
 	ApplicationConfig.RPCRateLimitTime = rateLimitTime
 	ApplicationConfig.RPCRateLimitBurst = rateLimitBurst
 
@@ -143,6 +165,11 @@ func ParseEnv() *Config {
 
 	ApplicationConfig.OwnersFollowTime = ownersFollowTime
 	ApplicationConfig.OwnersInterval = ownersInterval
+
+	ApplicationConfig.CacheTimeoutSeconds = cacheTimeoutSeconds
+	ApplicationConfig.StaleIfDeadForSeconds = staleIfDeadForSeconds
+
+	ApplicationConfig.CacheTTLMinutes = cacheTTLMinutes
 
 	return &ApplicationConfig
 

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/redis/go-redis/v9"
@@ -35,6 +36,29 @@ func InitRedisClient(redis_host string, redis_port int, redis_password string, c
 
 	return *rdb
 
+}
+
+func SmartGetClient(ctx *context.Context) *redis.Client {
+	rdb = GetRedisClient()
+	tries := 0
+
+	if rdb == nil {
+		for {
+			if rdb == nil {
+				tries++
+				if tries > 5 {
+					InitRedisClient(config.ApplicationConfig.RedisHost, config.ApplicationConfig.RedisPort, config.ApplicationConfig.RedisPassword, ctx)
+					//loops 1 more time to make sure it's not nil
+				}
+				rdb = GetRedisClient()
+			} else {
+				log.Info().Msg("Redis client acquired")
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}
+	return rdb
 }
 
 func PingRedisClient(ctx *context.Context) string {
