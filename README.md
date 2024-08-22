@@ -7,11 +7,12 @@ This project, which is in progress, is an G/RPC listener that listens for token 
 | Icon | Name | Description |
 |---|---|---|
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg" width=50px /> | Python | For the G/RPC listener and API |
-| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/fastapi/fastapi-original.svg" width=50px /> | FastAPI | For the API |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/fastapi/fastapi-original.svg" width=50px /> | FastAPI | Framework for the API |
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/go/go-original.svg" width=50px /> | Go | For token data processing |
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/redis/redis-original.svg" width=50px /> | Redis | For caching and pub/sub |
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/docker/docker-original.svg" width=50px /> | Docker | For containerization |
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg" width=50px />| PostgreSQL | For persistent storage |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/prisma/prisma-original.svg" /> | Prisma | As the ORM
 
 ## Program Flow Proposal
 <img src="./project_plan.png" width=50% />
