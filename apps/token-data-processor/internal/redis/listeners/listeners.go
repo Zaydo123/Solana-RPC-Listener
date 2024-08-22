@@ -9,6 +9,7 @@ import (
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/redis/client"
 	ConsumerEvents "github.com/Zaydo123/token-processor/internal/redis/models"
+	"github.com/Zaydo123/token-processor/internal/redis/tasks/get"
 	"github.com/Zaydo123/token-processor/internal/token/models"
 	parser "github.com/Zaydo123/token-processor/internal/token/parser"
 	"github.com/Zaydo123/token-processor/internal/token/prices"
@@ -85,8 +86,10 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 		basePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.BasePoolAccount)
 		quotePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.QuotePoolAccount)
 
-		tokenObj, errRunAll := tp.RunAll(context.TODO(), newPairEvent.Data.BaseToken, rpc.CommitmentFinalized, &basePoolAccount, &quotePoolAccount)
-		tokenObj.IPO = newPairEvent.Data.BlockTime
+		fetchContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		tokenObj, errRunAll := tp.RunAll(fetchContext, newPairEvent.Data.BaseToken, rpc.CommitmentFinalized, &basePoolAccount, &quotePoolAccount)
+		tokenObj.IPO = newPairEvent.Data.BlockTime // seconds not milliseconds
 
 		end := time.Now()
 
@@ -145,13 +148,20 @@ func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[
 		}
 
 		// log.Info().Msgf("Parsed SwapEvent: %+v", swapEvent)
-		// TODO: Process the swap event further
 
 		//find token in token map and process swap event for that token
 		token, ok := (*tokenMap)[swapEvent.Data.TokenAddress]
 		if !ok {
-			log.Error().Msg("Token not found in token map")
-			continue
+			log.Error().Msg("Token not found in token map... searching redis for cached state")
+			foundToken, notFoundError := get.GetTokenData(swapEvent.Data.TokenAddress)
+			if notFoundError != nil {
+				log.Error().Msg("Token not found in redis cache")
+				continue
+			}
+			//add to token map
+			(*tokenMap)[swapEvent.Data.TokenAddress] = foundToken
+			log.Info().Msgf("Revived token from cache: %s", swapEvent.Data.TokenAddress)
+			token = foundToken
 		}
 		swaps.ProcessSwapEvent(token, swapEvent)
 	}

@@ -123,7 +123,7 @@ func (tp *TokenParser) fetchSinglePoolBalance(ctx context.Context, poolAccount s
 	}
 
 	// log.Info().Msgf("Fetching %s balance for %s", accountType, poolAccount.String())
-	pool, err := tp.client.GetTokenAccountBalance(ctx, poolAccount, rpc.CommitmentConfirmed)
+	pool, err := tp.client.GetTokenAccountBalance(ctx, poolAccount, rpc.CommitmentProcessed)
 	if err != nil || pool == nil {
 		log.Error().Err(err).Msgf("Failed to fetch %s balance", accountType)
 		return 0
@@ -217,7 +217,7 @@ func (tp *TokenParser) GetInfo(ctx context.Context, pubkey string, commitment rp
 		FreezeAuthority: solana.PublicKey{}, // default to empty if nil
 		MintAuthority:   solana.PublicKey{}, // default to empty if nil
 		IsInitialized:   mint.IsInitialized,
-		LastUpdated:     time.Now().Unix(),
+		LastUpdated:     time.Now().UnixMilli(),
 		Owner:           owner.String(),
 	}
 
@@ -241,7 +241,7 @@ func (tp *TokenParser) GetLargestHolders(ctx context.Context, token *models.Toke
 	largestAccounts := largestAccountsReq.Value
 	largestHolders := models.LargestHolders{
 		Holders:   []models.LargestHolder{},
-		Timestamp: float64(time.Now().Unix()),
+		Timestamp: float64(time.Now().UnixMilli()),
 	}
 
 	var sumOwned float64 = 0.0

@@ -18,7 +18,7 @@ func FollowTopOwnership(ctx context.Context, tokenParser *parser.TokenParser, to
 	for range ticker.C {
 		followTime -= interval
 		// Get the token top ownership and add it to the token object
-		topOwnership, err := tokenParser.GetLargestHolders(ctx, tokenObj, rpc.CommitmentConfirmed)
+		topOwnership, err := tokenParser.GetLargestHolders(ctx, tokenObj, rpc.CommitmentProcessed)
 		//float percentage print
 		log.Info().Msgf("Top Ownership: %f | FRAME %d", topOwnership.TopOwnershipPercentage, len(tokenObj.LargestHolders))
 		if err != nil {

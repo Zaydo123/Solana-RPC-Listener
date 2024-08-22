@@ -12,7 +12,6 @@ import (
 
 func ProcessSwapEvent(token *models.Token, swapEvent consumerevents.SwapEvent) {
 
-	// TODO:
 	// Step 1: Get the swap event data
 	buyVolume := decimal.NewFromFloat(0.0)
 	sellVolume := decimal.NewFromFloat(0.0)
@@ -46,7 +45,7 @@ func ProcessSwapEvent(token *models.Token, swapEvent consumerevents.SwapEvent) {
 		token.AddToCurrentVolumePeriod(buyVolume, sellVolume)
 
 		log.Info().Msg("-----------------")
-		log.Info().Msgf("Updated TV: %s | TBV %s | TSV %s", token.TotalVolume.TotalVolume.String(), token.TotalVolume.TotalBuyVolume.String(), token.TotalVolume.TotalSellVolume.String())
+		log.Info().Msgf("TV : %s | TBV: %s | TSV: %s", token.TotalVolume.TotalVolume.String(), token.TotalVolume.TotalBuyVolume.String(), token.TotalVolume.TotalSellVolume.String())
 		log.Info().Msgf("CPV: %s | CBV: %s | CSV: %s", mostRecentVolume.Volume.String(), mostRecentVolume.BuyVolume.String(), mostRecentVolume.SellVolume.String())
 		if sellVolume.GreaterThan(decimal.NewFromFloat(0.0)) {
 			log.Info().Msgf("Buy: %s | Sell: %s | Ratio: %s", buyVolume.String(), sellVolume.String(), buyVolume.Div(sellVolume).String())
@@ -57,9 +56,6 @@ func ProcessSwapEvent(token *models.Token, swapEvent consumerevents.SwapEvent) {
 	// Step 3: Update the token's last updated time
 	// last updated now (even if blocktime is in past)
 	// because used to determine if token is stale or not
-
-	// TODO: REPLACE After Task 2 in queue
-	// -> 	Add token.Update() function which caches token in redis if last update has been X amount of time determined by env
-	token.LastUpdated = time.Now().Unix()
+	token.LastUpdated = time.Now().UnixMilli()
 
 }

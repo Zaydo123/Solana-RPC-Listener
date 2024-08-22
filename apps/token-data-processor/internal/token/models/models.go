@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+
 	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
 	"github.com/rs/zerolog/log"
@@ -106,8 +108,8 @@ type Token struct {
 	IPO              float64 //date
 	LargestHolders   []LargestHolders
 	TotalBurned      int64
-	LastUpdated      int64   //date
-	LastCacheUpdate  float64 //date
+	LastUpdated      int64 //date
+	LastCacheUpdate  int64 //date
 }
 
 // ============================ Accessors ============================
@@ -344,4 +346,16 @@ func (t *Token) AddToCurrentVolumePeriod(buyVolume decimal.Decimal, sellVolume d
 // Add Top Holder
 func (t *Token) AddTopHolder(holders LargestHolders) {
 	t.LargestHolders = append(t.LargestHolders, holders)
+}
+
+// ================ MARSHALING ==========================
+
+// ================== Custom JSON Serialization ==================
+
+func (t *Token) MarshalBinary() ([]byte, error) {
+	return json.Marshal(t)
+}
+
+func (t *Token) UnmarshalBinary(data []byte) error {
+	return json.Unmarshal(data, t)
 }

@@ -27,8 +27,7 @@ func FollowPrice(ctx context.Context, tokenParser *parser.TokenParser, tokenObj 
 		price = tokenParser.GetPrice(ctx, *tokenObj)
 		tokenObj.AddPrice(price, float64(time.Now().Unix()))
 
-		// TODO: REPLACE After Task 2 in queue
-		tokenObj.LastUpdated = time.Now().Unix()
+		tokenObj.LastUpdated = time.Now().UnixMilli()
 
 		log.Info().Msgf("Price: %s", price.String())
 
