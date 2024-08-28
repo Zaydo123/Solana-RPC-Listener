@@ -10,6 +10,7 @@ import (
 	"github.com/Zaydo123/token-processor/internal/redis/client"
 	ConsumerEvents "github.com/Zaydo123/token-processor/internal/redis/models"
 	"github.com/Zaydo123/token-processor/internal/redis/tasks/get"
+	"github.com/Zaydo123/token-processor/internal/token/burns"
 	"github.com/Zaydo123/token-processor/internal/token/models"
 	parser "github.com/Zaydo123/token-processor/internal/token/parser"
 	"github.com/Zaydo123/token-processor/internal/token/prices"
@@ -24,12 +25,10 @@ import (
 
 var rdb *redis.Client // Redis client
 
-func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup) {
-	// Receive messages from the burns channel
+func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]*models.Token) {
 	defer wg.Done()
 	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.BurnsChannel)
 
-	// Wait for messages
 	for {
 		msg, err := pubsub.ReceiveMessage(ctx)
 		if err != nil {
@@ -37,7 +36,6 @@ func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		// Unmarshal the entire message directly into a BurnEvent
 		var burnEvent ConsumerEvents.BurnEvent
 		err = json.Unmarshal([]byte(msg.Payload), &burnEvent)
 		if err != nil {
@@ -45,9 +43,22 @@ func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup) {
 			continue
 		}
 
-		// Log the fully populated BurnEvent, which includes the populated Data field
-		log.Info().Msgf("Parsed BurnEvent: %+v", burnEvent)
-		// TODO: Process the burn event further
+		if burns.IsBlacklisted(burnEvent.Data.TokenAddress) {
+			continue
+		}
+
+		if _, ok := (*tokenMap)[burnEvent.Data.TokenAddress]; !ok {
+			// log.Error().Msg("Token not found in token map... searching redis for cached state")
+			foundToken, notFoundError := get.GetTokenData(burnEvent.Data.TokenAddress)
+			if notFoundError != nil {
+				// log.Error().Msg("Token not found in redis cache")
+				continue
+			}
+			(*tokenMap)[burnEvent.Data.TokenAddress] = foundToken
+			log.Info().Msgf("Revived token from cache: %s", burnEvent.Data.TokenAddress)
+		}
+
+		burns.ProcessBurnEvent(burnEvent, tokenMap)
 	}
 }
 
@@ -62,7 +73,7 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 		msg, errReceive := pubsub.ReceiveMessage(ctx)
 		if errReceive != nil {
 			log.Error().Err(errReceive).Msg("Error receiving message")
-			return
+			continue
 		}
 
 		// Parse the message into a NewPairEvent
@@ -94,8 +105,8 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 		end := time.Now()
 
 		if errRunAll != nil {
-			log.Error().Err(errRunAll).Msg("Failed to get token info")
-			return
+			log.Error().Err(errRunAll).Msg("Failed to get token info... continuing")
+			continue
 		}
 
 		elapsed := end.Sub(start)
@@ -178,7 +189,7 @@ func StartServices(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string
 
 	// Receive burns messages
 	wg.Add(1)
-	go receiveBurnMessages(ctx, wg)
+	go receiveBurnMessages(ctx, wg, tokenMap)
 
 	// Receive new pairs messages
 	wg.Add(1)
@@ -187,6 +198,9 @@ func StartServices(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string
 	// Receive swaps messages
 	wg.Add(1)
 	go receiveSwapMessages(ctx, wg, tokenMap)
+
+	// Start the cleanup task for unknown tokens
+	go burns.CleanupTask(300) // Cleanup every 300 seconds (5 minutes)
 
 	log.Info().Msg("All services started")
 

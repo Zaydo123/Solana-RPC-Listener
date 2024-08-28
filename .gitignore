@@ -15,3 +15,5 @@ __test.py
 main
 *.exe
 *.out
+*.env
+solana-env

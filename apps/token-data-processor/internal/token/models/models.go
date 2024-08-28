@@ -72,7 +72,7 @@ type Volume struct {
 	Volume     decimal.Decimal
 	BuyVolume  decimal.Decimal
 	SellVolume decimal.Decimal
-	Time       float64
+	Time       float64 // start of the period, closed by beginning of next period
 }
 
 type TotalVolume struct {
@@ -83,7 +83,12 @@ type TotalVolume struct {
 
 type Price struct {
 	Price decimal.Decimal
-	Time  float64
+	Time  float64 // start of the period, closed by beginning of next period
+}
+
+type BurnPeriod struct {
+	AmountBurned decimal.Decimal
+	StartTime    int64
 }
 
 type Token struct {
@@ -107,7 +112,8 @@ type Token struct {
 	IsInitialized    bool
 	IPO              float64 //date
 	LargestHolders   []LargestHolders
-	TotalBurned      int64
+	TotalBurned      decimal.Decimal
+	BurnPeriods      []BurnPeriod
 	LastUpdated      int64 //date
 	LastCacheUpdate  int64 //date
 }
@@ -147,6 +153,15 @@ func (t *Token) GetMostRecentVolumeObject() *Volume {
 		return nil
 	}
 	return &t.Volumes[lenV-1]
+}
+
+// ================== Burn Access  ==================
+func (t *Token) GetMostRecentBurnPeriod() *BurnPeriod {
+	lenB := len(t.BurnPeriods)
+	if lenB == 0 {
+		return nil
+	}
+	return &t.BurnPeriods[lenB-1]
 }
 
 // ================== Holder State Access  ==================
@@ -324,6 +339,14 @@ func (t *Token) AddVolume(time float64, buyVolume decimal.Decimal, sellVolume de
 
 }
 
+func (t *Token) AddBurnPeriod(amountBurned decimal.Decimal, startTime int64) {
+	t.BurnPeriods = append(t.BurnPeriods, BurnPeriod{
+		AmountBurned: amountBurned,
+		StartTime:    startTime,
+	})
+	t.TotalBurned = t.TotalBurned.Add(amountBurned)
+}
+
 func (t *Token) AddToCurrentVolumePeriod(buyVolume decimal.Decimal, sellVolume decimal.Decimal) {
 	mostRecentVolume := t.GetMostRecentVolumeObject()
 	if mostRecentVolume == nil {
@@ -340,6 +363,16 @@ func (t *Token) AddToCurrentVolumePeriod(buyVolume decimal.Decimal, sellVolume d
 	t.TotalVolume.TotalVolume = t.TotalVolume.TotalVolume.Add(tvToAdd)
 	t.TotalVolume.TotalBuyVolume = t.TotalVolume.TotalBuyVolume.Add(buyVolume)
 	t.TotalVolume.TotalSellVolume = t.TotalVolume.TotalSellVolume.Add(sellVolume)
+}
+
+func (t *Token) AddToCurrentBurnPeriod(amountBurned decimal.Decimal) {
+	mostRecentBurnPeriod := t.GetMostRecentBurnPeriod()
+	if mostRecentBurnPeriod == nil {
+		log.Error().Msg("Trying to add to current burn period but there are no burn periods")
+		return
+	}
+	mostRecentBurnPeriod.AmountBurned = mostRecentBurnPeriod.AmountBurned.Add(amountBurned)
+	t.TotalBurned = t.TotalBurned.Add(amountBurned)
 }
 
 // ================ Holder State Mutators  ===============
