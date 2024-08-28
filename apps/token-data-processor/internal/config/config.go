@@ -29,6 +29,7 @@ type Config struct {
 	PriceFollowTime       int
 	OwnersFollowTime      int
 	OwnersInterval        int
+	BlacklistFilePath     string
 }
 
 var ApplicationConfig Config
@@ -109,8 +110,8 @@ func ParseEnv() *Config {
 	ownersInterval, err6 := strconv.Atoi(GetEnv("OWNERS_INTERVAL"))
 	cacheTimeoutSeconds, err7 := strconv.Atoi(GetEnv("CACHE_TIMEOUT_SECONDS"))
 	staleIfDeadForSeconds, err8 := strconv.Atoi(GetEnv("STALE_IF_DEAD_FOR_SECONDS"))
-
 	cacheTTLMinutes, err9 := strconv.Atoi(GetEnv("CACHE_TTL_MINUTES"))
+	blFilePath := GetEnv("BLACKLIST_FILE_PATH")
 
 	if err1 != nil {
 		log.Fatal().Err(err).Msg("Error parsing PROVIDER_MAIN_RATE_LIMIT_TIME")
@@ -168,8 +169,9 @@ func ParseEnv() *Config {
 
 	ApplicationConfig.CacheTimeoutSeconds = cacheTimeoutSeconds
 	ApplicationConfig.StaleIfDeadForSeconds = staleIfDeadForSeconds
-
 	ApplicationConfig.CacheTTLMinutes = cacheTTLMinutes
+
+	ApplicationConfig.BlacklistFilePath = blFilePath
 
 	return &ApplicationConfig
 

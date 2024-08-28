@@ -3,12 +3,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider             = "prisma-client-py"
-  recursive_type_depth = 5
-  interface            = "asyncio"
-}
-
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
