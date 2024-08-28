@@ -16,8 +16,14 @@ import (
 // Map of blacklisted token addresses and their last hit timestamps
 var blacklist = map[string]string{}
 
+type UnknownToken struct {
+	TokenAddress string
+	HitCount     int
+	Burns        []models.BurnPeriod
+}
+
 // Map of unknown tokens and their hit count
-var unknownTokens = map[string]int{}
+var unknownTokens = map[string]UnknownToken{}
 
 // Mutex to handle concurrent access to maps
 var mu sync.Mutex
@@ -41,14 +47,18 @@ func backupBlacklistToFile(filePath string) {
 		writer.Write([]string{tokenAddress, lastHit})
 	}
 
-	log.Info().Msg("Blacklist backed up successfully")
+	// log.Info().Msg("Blacklist backed up successfully")
 }
 
 // reloadBlacklistFromFile reloads the blacklist from a CSV file
 func reloadBlacklistFromFile(filePath string) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		log.Error().Err(err).Msg("Error opening blacklist file")
+		log.Error().Err(err).Msg("Error opening blacklist file... creating new blacklist file")
+		_, err := os.Create(filePath)
+		if err != nil {
+			log.Error().Err(err).Msg("Error creating blacklist file")
+		}
 		return
 	}
 	defer file.Close()
@@ -70,8 +80,6 @@ func reloadBlacklistFromFile(filePath string) {
 
 	if len(blacklist) == 0 {
 		log.Warn().Msg("Blacklist is empty")
-	} else {
-		log.Info().Msg("Blacklist loaded successfully")
 	}
 }
 
@@ -84,18 +92,55 @@ func IsBlacklisted(tokenAddress string) bool {
 }
 
 // TrackUnknownToken increments the counter for unknown tokens
-func TrackUnknownToken(tokenAddress string) {
+func TrackUnknownToken(burnEvent consumerevents.BurnEvent) {
+	tokenAddress := burnEvent.Data.TokenAddress
+
 	mu.Lock()
 	defer mu.Unlock()
-	unknownTokens[tokenAddress]++
-	if unknownTokens[tokenAddress] > 4 {
+	hitCount := unknownTokens[tokenAddress].HitCount
+
+	if hitCount == 0 {
+		hitCount = 1
+		//new burn period with the token amount and block time
+		unknownTokens[tokenAddress] = UnknownToken{
+			TokenAddress: tokenAddress,
+			HitCount:     hitCount,
+			Burns: []models.BurnPeriod{
+				{
+					StartTime:    int64(burnEvent.Data.BlockTime),
+					AmountBurned: decimal.RequireFromString(burnEvent.Data.TokenAmount),
+				},
+			},
+		}
+	} else {
+		hitCount++
+		// if the last burn period is older than the interval, create a new burn period
+		if unknownTokens[tokenAddress].Burns[len(unknownTokens[tokenAddress].Burns)-1].StartTime+int64(config.ApplicationConfig.PriceInterval) < int64(burnEvent.Data.BlockTime) {
+			burns := unknownTokens[tokenAddress]
+			//new burn period with the token amount and block time
+			burns.Burns = append(burns.Burns, models.BurnPeriod{
+				StartTime:    int64(burnEvent.Data.BlockTime),
+				AmountBurned: decimal.RequireFromString(burnEvent.Data.TokenAmount),
+			})
+			//update the token in the map
+			unknownTokens[tokenAddress] = burns
+		} else {
+			//add the token amount to the last burn period
+			unknownTokens[tokenAddress].Burns[len(unknownTokens[tokenAddress].Burns)-1].AmountBurned = unknownTokens[tokenAddress].Burns[len(unknownTokens[tokenAddress].Burns)-1].AmountBurned.Add(decimal.RequireFromString(burnEvent.Data.TokenAmount))
+		}
+		//update the hit count
+		unknownToken := unknownTokens[tokenAddress]
+		unknownToken.HitCount = hitCount
+		unknownTokens[tokenAddress] = unknownToken
+	}
+	//if the token has been seen 5 times and the first burn period is older than 5 minutes, blacklist the token
+	if unknownTokens[tokenAddress].HitCount >= 5 && time.Now().Unix()-unknownTokens[tokenAddress].Burns[0].StartTime > 5*60 {
 		// Add to blacklist
 		blacklist[tokenAddress] = time.Now().Format(time.RFC3339)
 		delete(unknownTokens, tokenAddress)
 		log.Info().Msgf("Token %s has been blacklisted after 5 events", tokenAddress)
-	} else {
-		log.Info().Msgf("Token %s has been seen %d times", tokenAddress, unknownTokens[tokenAddress])
 	}
+	// else just wait for the next event. it will be cleaned up if it's inactive
 
 }
 
@@ -104,13 +149,15 @@ func CleanupUnknownTokens() {
 	mu.Lock()
 	defer mu.Unlock()
 	threshold := time.Now().Add(-5 * time.Minute)
+	totalDeleted := 0
 	for tokenAddress, lastHit := range blacklist {
 		lastHitTime, _ := time.Parse(time.RFC3339, lastHit)
 		if lastHitTime.Before(threshold) {
 			delete(unknownTokens, tokenAddress)
-			log.Info().Msgf("Token %s has been removed from unknown tokens list due to inactivity", tokenAddress)
+			totalDeleted++
 		}
 	}
+	log.Info().Msgf("Cleaned up %d unknown tokens", totalDeleted)
 }
 
 // BlackListRefreshTask reloads the blacklist from the file every intervalSeconds seconds
@@ -138,25 +185,53 @@ func CleanupTask(intervalSeconds int) {
 	}
 }
 
+// matching task will be used to match the token object with its corresponding burn events because burns usually occur before the token is added to the DEX
+func MatchingTask(matchCheckInterval int, tokenMap *map[string]*models.Token) {
+	ticker := time.NewTicker(time.Second * time.Duration(matchCheckInterval))
+	for range ticker.C {
+		mu.Lock()
+		// check all unknown tokens and see if they are in the token map
+		for tokenAddress, unknownToken := range unknownTokens {
+			if _, ok := (*tokenMap)[tokenAddress]; ok {
+				log.Info().Msgf("Burns: Matched token %s with %d burn events", tokenAddress, len(unknownToken.Burns))
+				// if the token is found in the token map, add the burn periods to the token
+				token := (*tokenMap)[tokenAddress]
+				for _, burn := range unknownToken.Burns {
+					if token.GetMostRecentBurnPeriod() == nil {
+						token.AddBurnPeriod(burn.AmountBurned, burn.StartTime)
+					} else {
+						if token.GetMostRecentBurnPeriod().StartTime+int64(config.ApplicationConfig.PriceInterval) < burn.StartTime {
+							token.AddBurnPeriod(burn.AmountBurned, burn.StartTime)
+						} else {
+							token.AddToCurrentBurnPeriod(burn.AmountBurned)
+						}
+					}
+				}
+				// remove the token from the unknown tokens map
+				delete(unknownTokens, tokenAddress)
+			}
+		}
+
+		mu.Unlock()
+	}
+}
+
 // ProcessBurnEvent processes a burn event for a token
 func ProcessBurnEvent(burnEvent consumerevents.BurnEvent, tokenMap *map[string]*models.Token) {
-	log.Info().Msgf("Processing burn event for token: %s", burnEvent.Data.TokenAddress)
-
 	if IsBlacklisted(burnEvent.Data.TokenAddress) {
 		log.Info().Msgf("Token is blacklisted: %s", burnEvent.Data.TokenAddress)
+		mu.Lock()
+		// Update the last hit timestamp in memory
+		blacklist[burnEvent.Data.TokenAddress] = time.Now().Format(time.RFC3339)
+		mu.Unlock()
 		return
 	}
-
-	// Update the last hit timestamp in memory
-	mu.Lock()
-	blacklist[burnEvent.Data.TokenAddress] = time.Now().Format(time.RFC3339)
-	mu.Unlock()
 
 	// Find the token in the token map
 	token, ok := (*tokenMap)[burnEvent.Data.TokenAddress]
 	if !ok {
-		log.Error().Msg("Token not found in token map")
-		TrackUnknownToken(burnEvent.Data.TokenAddress)
+		// log.Info().Msg("Burns: token not found in token map... starting to track")
+		TrackUnknownToken(burnEvent)
 		return
 	}
 

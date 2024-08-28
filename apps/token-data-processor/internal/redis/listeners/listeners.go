@@ -16,7 +16,6 @@ import (
 	"github.com/Zaydo123/token-processor/internal/token/prices"
 	"github.com/Zaydo123/token-processor/internal/token/swaps"
 	topownership "github.com/Zaydo123/token-processor/internal/token/top-ownership"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/redis/go-redis/v9"
@@ -28,6 +27,12 @@ var rdb *redis.Client // Redis client
 func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string]*models.Token) {
 	defer wg.Done()
 	pubsub := rdb.Subscribe(ctx, config.ApplicationConfig.BurnsChannel)
+
+	//schedule necessary tasks to clear unknown tokens
+	go burns.CleanupTask(300)                                                     // Cleanup every 300 seconds (5 minutes)
+	go burns.ScheduledBackupTask(config.ApplicationConfig.BlacklistFilePath, 10)  // Backup every 10 seconds
+	go burns.BlackListRefreshTask(config.ApplicationConfig.BlacklistFilePath, 25) // Reload every 25 seconds - cannot be divisible by 10 for safety from the backup task
+	go burns.MatchingTask(config.ApplicationConfig.PriceInterval, tokenMap)       // Matching every time price interval is reached
 
 	for {
 		msg, err := pubsub.ReceiveMessage(ctx)
@@ -50,12 +55,10 @@ func receiveBurnMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[
 		if _, ok := (*tokenMap)[burnEvent.Data.TokenAddress]; !ok {
 			// log.Error().Msg("Token not found in token map... searching redis for cached state")
 			foundToken, notFoundError := get.GetTokenData(burnEvent.Data.TokenAddress)
-			if notFoundError != nil {
-				// log.Error().Msg("Token not found in redis cache")
-				continue
+			if notFoundError == nil {
+				(*tokenMap)[burnEvent.Data.TokenAddress] = foundToken
+				log.Info().Msgf("Revived token from cache: %s", burnEvent.Data.TokenAddress)
 			}
-			(*tokenMap)[burnEvent.Data.TokenAddress] = foundToken
-			log.Info().Msgf("Revived token from cache: %s", burnEvent.Data.TokenAddress)
 		}
 
 		burns.ProcessBurnEvent(burnEvent, tokenMap)
@@ -97,8 +100,7 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 		basePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.BasePoolAccount)
 		quotePoolAccount := solana.MustPublicKeyFromBase58(newPairEvent.Data.QuotePoolAccount)
 
-		fetchContext, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
+		fetchContext := context.WithoutCancel(ctx)
 		tokenObj, errRunAll := tp.RunAll(fetchContext, newPairEvent.Data.BaseToken, rpc.CommitmentFinalized, &basePoolAccount, &quotePoolAccount)
 		tokenObj.IPO = newPairEvent.Data.BlockTime // seconds not milliseconds
 
@@ -111,7 +113,7 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 
 		elapsed := end.Sub(start)
 
-		spew.Dump(tokenObj)
+		// spew.Dump(tokenObj)
 
 		log.Info().Msgf("Time taken to get all info: %s", elapsed)
 
@@ -119,9 +121,7 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 		(*tokenMap)[newPairEvent.Data.BaseToken] = tokenObj
 
 		// STEP 3 : Start Price Service
-		deadlinePrice := time.Now().Add(time.Duration(config.ApplicationConfig.PriceFollowTime) * time.Second * 5) // 5 times the follow time as deadline (in case of any issues)
-		contextPrice, cancelPrice := context.WithDeadline(ctx, deadlinePrice)
-		defer cancelPrice()
+		contextPrice := context.WithoutCancel(ctx)
 		go prices.FollowPrice(contextPrice, tp, tokenObj, config.ApplicationConfig.PriceFollowTime, config.ApplicationConfig.PriceInterval)
 
 		// STEP 4 : Start Top Ownership Service
@@ -198,9 +198,6 @@ func StartServices(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[string
 	// Receive swaps messages
 	wg.Add(1)
 	go receiveSwapMessages(ctx, wg, tokenMap)
-
-	// Start the cleanup task for unknown tokens
-	go burns.CleanupTask(300) // Cleanup every 300 seconds (5 minutes)
 
 	log.Info().Msg("All services started")
 

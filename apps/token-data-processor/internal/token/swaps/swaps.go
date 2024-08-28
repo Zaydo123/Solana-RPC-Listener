@@ -44,13 +44,9 @@ func ProcessSwapEvent(token *models.Token, swapEvent consumerevents.SwapEvent) {
 		}
 		token.AddToCurrentVolumePeriod(buyVolume, sellVolume)
 
-		log.Info().Msg("-----------------")
-		log.Info().Msgf("TV : %s | TBV: %s | TSV: %s", token.TotalVolume.TotalVolume.String(), token.TotalVolume.TotalBuyVolume.String(), token.TotalVolume.TotalSellVolume.String())
-		log.Info().Msgf("CPV: %s | CBV: %s | CSV: %s", mostRecentVolume.Volume.String(), mostRecentVolume.BuyVolume.String(), mostRecentVolume.SellVolume.String())
-		if sellVolume.GreaterThan(decimal.NewFromFloat(0.0)) {
-			log.Info().Msgf("Buy: %s | Sell: %s | Ratio: %s", buyVolume.String(), sellVolume.String(), buyVolume.Div(sellVolume).String())
-		}
-
+		// log.Info().Msg("-----------------")
+		// log.Info().Msgf("TV : %s | TBV: %s | TSV: %s", token.TotalVolume.TotalVolume.String(), token.TotalVolume.TotalBuyVolume.String(), token.TotalVolume.TotalSellVolume.String())
+		// log.Info().Msgf("CPV: %s | CBV: %s | CSV: %s", mostRecentVolume.Volume.String(), mostRecentVolume.BuyVolume.String(), mostRecentVolume.SellVolume.String())
 	}
 
 	// Step 3: Update the token's last updated time

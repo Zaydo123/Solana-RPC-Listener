@@ -17,3 +17,4 @@ main
 *.out
 *.env
 solana-env
+blacklist.csv
