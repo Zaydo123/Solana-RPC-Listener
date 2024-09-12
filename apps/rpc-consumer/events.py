@@ -55,6 +55,8 @@ class NewPairEvent(Event):
 class SwapEvent(Event):
     def __init__(self, transaction: Transaction):
         self.transaction = transaction
+        if transaction is None:
+            raise ValueError("Transaction cannot be None")
         super().__init__("swap", {"transaction": transaction.to_json()})
 
     def __str__(self):

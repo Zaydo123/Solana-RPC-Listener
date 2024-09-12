@@ -213,11 +213,22 @@ class Transaction:
         trans_data = await ctx.get_transaction(signature, max_supported_transaction_version=0, commitment=Confirmed, encoding="jsonParsed")
         result = []
 
-        amm_pubkey = Pubkey.from_string(authority_address)
-        post_balances = trans_data.value.transaction.meta.post_token_balances
-        pre_balances = trans_data.value.transaction.meta.pre_token_balances
-        fee_paid = str(Decimal(trans_data.value.transaction.meta.fee) / LAMPORTS_PER_SOL)
-        block_time = trans_data.value.block_time
+        try:
+            amm_pubkey = Pubkey.from_string(authority_address)
+            post_balances = trans_data.value.transaction.meta.post_token_balances
+            pre_balances = trans_data.value.transaction.meta.pre_token_balances
+            fee_paid = str(Decimal(trans_data.value.transaction.meta.fee) / LAMPORTS_PER_SOL)
+            block_time = trans_data.value.block_time
+        except AttributeError as e:
+            logging.error(f"Error in transaction data: {e}")
+            logging.debug(f"""
+            Transaction Data:
+        
+                {trans_data}
+
+            """)
+
+            return
 
         # -------------- load up all accounts into a dictionary for easy access -------------- 
         native_accounts_pre = {}

@@ -227,7 +227,7 @@ func (tp *TokenParser) GetInfo(ctx context.Context, pubkey string, commitment rp
 		FreezeAuthority: solana.PublicKey{}, // default to empty if nil
 		MintAuthority:   solana.PublicKey{}, // default to empty if nil
 		IsInitialized:   mint.IsInitialized,
-		LastUpdated:     time.Now().UnixMilli(),
+		LastUpdated:     time.Now().UTC().UnixMilli(),
 		Owner:           owner.String(),
 	}
 
@@ -251,7 +251,7 @@ func (tp *TokenParser) GetLargestHolders(ctx context.Context, token *models.Toke
 	largestAccounts := largestAccountsReq.Value
 	largestHolders := models.LargestHolders{
 		Holders:   []models.LargestHolder{},
-		Timestamp: float64(time.Now().UnixMilli()),
+		Timestamp: float64(time.Now().UTC().UnixMilli()),
 	}
 
 	var sumOwned float64 = 0.0
@@ -340,7 +340,7 @@ func (tp *TokenParser) RunAll(ctx context.Context, pubkey string, commitment rpc
 	token.AddTopHolder(*holders)
 	token.Metadata = *meta
 	if basePoolAccount != nil && quotePoolAccount != nil {
-		token.AddPrice(price, float64(time.Now().Unix())) // price isn't using block time, but current time
+		token.AddPrice(price, float64(time.Now().UTC().UnixMilli())) // price isn't using block time, but current time
 	}
 
 	return token, nil

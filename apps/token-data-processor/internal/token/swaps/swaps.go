@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Zaydo123/token-processor/internal/config"
+	kafkaManager "github.com/Zaydo123/token-processor/internal/kafka/client"
 	consumerevents "github.com/Zaydo123/token-processor/internal/redis/models"
 	"github.com/Zaydo123/token-processor/internal/token/models"
 	"github.com/rs/zerolog/log"
@@ -33,7 +34,14 @@ func ProcessSwapEvent(token *models.Token, swapEvent consumerevents.SwapEvent) {
 	// if there are no volume periods, or the last volume period is closed
 	// then create a new volume period with the swap time as the start time
 	if mostRecentVolume == nil || mostRecentVolume.Time+float64(config.ApplicationConfig.PriceInterval) <= float64(swapEvent.Data.BlockTime) {
+
+		//if theres one before, send the period before to the kafka topic
+		if mostRecentVolume != nil {
+			kafkaManager.SendTokenVolumeToKafka(token.PublicKeyString, mostRecentVolume)
+		}
+
 		token.AddVolume(swapEvent.Data.BlockTime, buyVolume, sellVolume)
+
 	} else {
 		// if the last volume period is still open, update the volume data
 		//add to respective buy/sell counters
@@ -52,6 +60,6 @@ func ProcessSwapEvent(token *models.Token, swapEvent consumerevents.SwapEvent) {
 	// Step 3: Update the token's last updated time
 	// last updated now (even if blocktime is in past)
 	// because used to determine if token is stale or not
-	token.LastUpdated = time.Now().UnixMilli()
+	token.LastUpdated = time.Now().UTC().UnixMilli()
 
 }

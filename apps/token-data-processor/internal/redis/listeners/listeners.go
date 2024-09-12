@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Zaydo123/token-processor/internal/config"
+	kafkaManager "github.com/Zaydo123/token-processor/internal/kafka/client"
 	"github.com/Zaydo123/token-processor/internal/redis/client"
 	ConsumerEvents "github.com/Zaydo123/token-processor/internal/redis/models"
 	"github.com/Zaydo123/token-processor/internal/redis/tasks/get"
@@ -88,10 +89,10 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 			continue
 		}
 
-		log.Info().Msgf("Parsed NewPairEvent: %+v", newPairEvent)
+		// log.Info().Msgf("Parsed NewPairEvent: %+v", newPairEvent)
+		log.Info().Msgf("New Market: %s", newPairEvent.Data.BaseToken)
 
 		// STEP 1 : Get All Token Info and Parse
-
 		tp := parser.NewTokenParser()
 		//time the function
 		start := time.Now()
@@ -113,21 +114,20 @@ func receiveNewPairsMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *
 
 		elapsed := end.Sub(start)
 
-		// spew.Dump(tokenObj)
-
 		log.Info().Msgf("Time taken to get all info: %s", elapsed)
 
 		// STEP 2 : Add to Token Map
 		(*tokenMap)[newPairEvent.Data.BaseToken] = tokenObj
 
-		// STEP 3 : Start Price Service
+		// STEP 3 : Send to Kafka Topic
+		kafkaManager.SendTokenBasicDataToKafka(tokenObj)
+
+		// STEP 4 : Start Price Service
 		contextPrice := context.WithoutCancel(ctx)
 		go prices.FollowPrice(contextPrice, tp, tokenObj, config.ApplicationConfig.PriceFollowTime, config.ApplicationConfig.PriceInterval)
 
-		// STEP 4 : Start Top Ownership Service
-		deadlineOwner := time.Now().Add(time.Duration(config.ApplicationConfig.OwnersFollowTime) * time.Second * 5) // 5 times the follow time as deadline (in case of any issues)
-		contextOwner, cancel := context.WithDeadline(ctx, deadlineOwner)
-		defer cancel()
+		// STEP 5 : Start Top Ownership Service
+		contextOwner := context.WithoutCancel(ctx)
 		go topownership.FollowTopOwnership(contextOwner, tp, tokenObj, config.ApplicationConfig.OwnersFollowTime, config.ApplicationConfig.OwnersInterval)
 
 		// Done
@@ -148,8 +148,6 @@ func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[
 			return
 		}
 
-		//log.Info().Msgf("Received message: %s", msg.Payload)
-
 		// Unmarshal the entire message directly into a SwapEvent
 		var swapEvent ConsumerEvents.SwapEvent
 		err = json.Unmarshal([]byte(msg.Payload), &swapEvent)
@@ -157,8 +155,6 @@ func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[
 			log.Error().Err(err).Msg("Error parsing swap event")
 			continue
 		}
-
-		// log.Info().Msgf("Parsed SwapEvent: %+v", swapEvent)
 
 		//find token in token map and process swap event for that token
 		token, ok := (*tokenMap)[swapEvent.Data.TokenAddress]

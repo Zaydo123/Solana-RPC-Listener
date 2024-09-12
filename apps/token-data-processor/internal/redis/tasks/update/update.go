@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Zaydo123/token-processor/internal/config"
+	kafkaManager "github.com/Zaydo123/token-processor/internal/kafka/client"
 	clientManager "github.com/Zaydo123/token-processor/internal/redis/client"
 	"github.com/Zaydo123/token-processor/internal/token/models"
 	"github.com/redis/go-redis/v9"
@@ -27,7 +28,7 @@ func SetTokenData(tokenPtr *models.Token) {
 					return
 				}
 
-				time.Sleep(1 * time.Second)
+				time.Sleep(500 * time.Millisecond)
 			} else {
 				context = clientManager.GetRedisClientContext()
 				log.Info().Msg("Redis client acquired")
@@ -47,7 +48,7 @@ func SetTokenData(tokenPtr *models.Token) {
 		log.Error().Msg(result.Err().Error())
 		return
 	}
-	tokenPtr.LastCacheUpdate = time.Now().UnixMilli()
+	tokenPtr.LastCacheUpdate = time.Now().UTC().UnixMilli()
 }
 
 func UpdateTask(tokenMap *map[string]*models.Token) {
@@ -58,14 +59,31 @@ func UpdateTask(tokenMap *map[string]*models.Token) {
 				//if not cached / new
 				SetTokenData(token)
 			}
-			if token.LastCacheUpdate+time.Duration(config.ApplicationConfig.CacheTimeoutSeconds).Milliseconds() < time.Now().UnixMilli() {
+			if token.LastCacheUpdate+time.Duration(config.ApplicationConfig.CacheTimeoutSeconds).Milliseconds() < time.Now().UTC().UnixMilli() {
 				//if not dead
-				if time.Now().UnixMilli() < token.LastUpdated+(time.Second*time.Duration(config.ApplicationConfig.StaleIfDeadForSeconds)).Milliseconds() { //if stale but not dead
+				if time.Now().UTC().UnixMilli() < token.LastUpdated+(time.Second*time.Duration(config.ApplicationConfig.StaleIfDeadForSeconds)).Milliseconds() { //if stale but not dead
 					SetTokenData(token)
 				} else { //is dead
 					//check not 0 because 0 means it was never cached
 					if token.LastCacheUpdate != 0 {
 						log.Info().Msgf("Token data for %s is dead. Removing from local store.", key)
+
+						//send last volume to kafka
+						lastVolume := token.GetMostRecentVolumeObject()
+						if lastVolume != nil {
+							kafkaManager.SendTokenVolumeToKafka(token.PublicKeyString, lastVolume)
+						}
+						//send last burn to kafka
+						lastBurnPeriod := token.GetMostRecentBurnPeriod()
+						if lastBurnPeriod != nil {
+							kafkaManager.SendTokenBurnToKafka(token.PublicKeyString, lastBurnPeriod)
+						}
+
+						//send last token object to kafka - without volume, burn, price - just to update meta and Totalbuy/sell totalburn, etx
+						kafkaManager.SendFinalUpdateToKafka(token)
+
+						//send to stale tokens redis channel for persistence to db
+						clientManager.BroadcastMessage(config.ApplicationConfig.StaleChannel, token.PublicKeyString)
 						delete(*tokenMap, key)
 					} else {
 						log.Info().Msgf("Token data for %s is dead. Not removing from local store because it was never cached.", key)

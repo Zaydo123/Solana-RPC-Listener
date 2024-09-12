@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Zaydo123/token-processor/internal/config"
+	kafkaManager "github.com/Zaydo123/token-processor/internal/kafka/client"
 	consumerevents "github.com/Zaydo123/token-processor/internal/redis/models"
 	"github.com/Zaydo123/token-processor/internal/token/models"
 	"github.com/rs/zerolog/log"
@@ -134,9 +135,9 @@ func TrackUnknownToken(burnEvent consumerevents.BurnEvent) {
 		unknownTokens[tokenAddress] = unknownToken
 	}
 	//if the token has been seen 5 times and the first burn period is older than 5 minutes, blacklist the token
-	if unknownTokens[tokenAddress].HitCount >= 5 && time.Now().Unix()-unknownTokens[tokenAddress].Burns[0].StartTime > 5*60 {
+	if unknownTokens[tokenAddress].HitCount >= 5 && time.Now().UTC().Unix()-unknownTokens[tokenAddress].Burns[0].StartTime > 5*60 {
 		// Add to blacklist
-		blacklist[tokenAddress] = time.Now().Format(time.RFC3339)
+		blacklist[tokenAddress] = time.Now().UTC().Format(time.RFC3339)
 		delete(unknownTokens, tokenAddress)
 		log.Info().Msgf("Token %s has been blacklisted after 5 events", tokenAddress)
 	}
@@ -148,7 +149,7 @@ func TrackUnknownToken(burnEvent consumerevents.BurnEvent) {
 func CleanupUnknownTokens() {
 	mu.Lock()
 	defer mu.Unlock()
-	threshold := time.Now().Add(-5 * time.Minute)
+	threshold := time.Now().UTC().Add(-5 * time.Minute)
 	totalDeleted := 0
 	for tokenAddress, lastHit := range blacklist {
 		lastHitTime, _ := time.Parse(time.RFC3339, lastHit)
@@ -222,7 +223,7 @@ func ProcessBurnEvent(burnEvent consumerevents.BurnEvent, tokenMap *map[string]*
 		log.Info().Msgf("Token is blacklisted: %s", burnEvent.Data.TokenAddress)
 		mu.Lock()
 		// Update the last hit timestamp in memory
-		blacklist[burnEvent.Data.TokenAddress] = time.Now().Format(time.RFC3339)
+		blacklist[burnEvent.Data.TokenAddress] = time.Now().UTC().Format(time.RFC3339)
 		mu.Unlock()
 		return
 	}
@@ -237,12 +238,19 @@ func ProcessBurnEvent(burnEvent consumerevents.BurnEvent, tokenMap *map[string]*
 
 	// Process the burn event logic for the token
 	if token.GetMostRecentBurnPeriod() == nil {
+		// if there are no burn periods, create a new burn period
 		token.AddBurnPeriod(decimal.RequireFromString(burnEvent.Data.TokenAmount), int64(burnEvent.Data.BlockTime))
 	} else {
+		// if the last burn period is older than the interval, create a new burn period
 		if token.GetMostRecentBurnPeriod().StartTime+int64(config.ApplicationConfig.PriceInterval) < int64(burnEvent.Data.BlockTime) {
+
+			// send the last burn event to the kafka topic
+			kafkaManager.SendTokenBurnToKafka(token.PublicKeyString, token.GetMostRecentBurnPeriod())
 			token.AddBurnPeriod(decimal.RequireFromString(burnEvent.Data.TokenAmount), int64(burnEvent.Data.BlockTime))
+
 		} else {
 			token.AddToCurrentBurnPeriod(decimal.RequireFromString(burnEvent.Data.TokenAmount))
 		}
 	}
+
 }

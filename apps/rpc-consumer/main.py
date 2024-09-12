@@ -38,6 +38,7 @@ WRAPPED_SOL_PUBKEY_STRING = "So11111111111111111111111111111111111111112"
 RAYDIUM_AMM_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"
 
 TRACK_BURNS = os.getenv("TRACK_BURNS") == "True"
+logging.info(f"Track burns: {TRACK_BURNS}")
 
 # Redis connection
 redis_client = Redis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), db=os.getenv("REDIS_DB"), decode_responses=True)
@@ -77,12 +78,19 @@ async def swap_callback(ctx: AsyncClient, data: str, target_token: str):
     try:
         signature = Signature.from_string(json_data["result"]["value"]["signature"])
         swap_data = await Transaction.get_swap(ctx,signature, target_token)
+        
+        if swap_data is None:
+            logging.error("Error fetching transaction from RPC")
+            return
+        
+
         event = SwapEvent(swap_data)
         redis_client.publish(str(SWAPS_CHANNEL), str(event))
         
     except Exception as e:
         logging.error("Error fetching transaction from RPC")
         logging.error(traceback.format_exc() + "\n-------")
+        logging.debug(f"Swap data: {swap_data}")
         return
 
 

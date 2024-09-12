@@ -14,14 +14,20 @@ type Config struct {
 	RedisHost             string
 	RedisPort             int
 	RedisPassword         string
+	KafkaBroker           string
 	CacheTimeoutSeconds   int
 	StaleIfDeadForSeconds int
 	CacheTTLMinutes       int
+	PricesTopic           string
+	VolumesTopic          string
+	TopHoldersTopic       string
+	BurnsTopic            string
+	TokensTopic           string
 	BurnsChannel          string
 	NewPairsChannel       string
 	ParsedPairsChannel    string
-	PricesChannel         string
 	SwapsChannel          string
+	StaleChannel          string
 	RPCURL                string
 	RPCRateLimitTime      int
 	RPCRateLimitBurst     int
@@ -85,7 +91,6 @@ func GetEnv(key string) string {
 func ParseEnv() *Config {
 	//load up the struct with the configuration
 	ApplicationConfig.RedisHost = GetEnv("REDIS_HOST")
-
 	redisPort, err := strconv.Atoi(GetEnv("REDIS_PORT"))
 
 	if err != nil {
@@ -93,14 +98,25 @@ func ParseEnv() *Config {
 		return nil
 	}
 
-	ApplicationConfig.RedisPort = redisPort
+	kafkaBroker := GetEnv("KAFKA_BROKER")
+	if kafkaBroker == "" {
+		log.Fatal().Msg("KAFKA_BROKER environment variable not set")
+		return nil
+	}
 
+	ApplicationConfig.KafkaBroker = kafkaBroker
+	ApplicationConfig.RedisPort = redisPort
 	ApplicationConfig.RedisPassword = GetEnv("REDIS_PASSWORD")
 	ApplicationConfig.BurnsChannel = GetEnv("REDIS_BURNS_CHANNEL")
 	ApplicationConfig.NewPairsChannel = GetEnv("REDIS_NEW_PAIRS_CHANNEL")
 	ApplicationConfig.ParsedPairsChannel = GetEnv("REDIS_PARSED_PAIRS_CHANNEL")
-	ApplicationConfig.PricesChannel = GetEnv("REDIS_PRICES_CHANNEL")
+	ApplicationConfig.PricesTopic = GetEnv("KAFKA_PRICES_TOPIC")
+	ApplicationConfig.VolumesTopic = GetEnv("KAFKA_VOLUMES_TOPIC")
+	ApplicationConfig.TopHoldersTopic = GetEnv("KAFKA_TOP_HOLDERS_TOPIC")
+	ApplicationConfig.BurnsTopic = GetEnv("KAFKA_BURNS_TOPIC")
+	ApplicationConfig.TokensTopic = GetEnv("KAFKA_TOKENS_TOPIC")
 	ApplicationConfig.SwapsChannel = GetEnv("REDIS_SWAPS_CHANNEL")
+	ApplicationConfig.StaleChannel = GetEnv("REDIS_STALE_CHANNEL")
 	ApplicationConfig.RPCURL = GetEnv("HTTP_PROVIDER_MAIN")
 	rateLimitTime, err1 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_TIME"))
 	rateLimitBurst, err2 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_BURST"))
