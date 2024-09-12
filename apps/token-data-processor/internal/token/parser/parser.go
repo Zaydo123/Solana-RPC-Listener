@@ -115,28 +115,38 @@ func (tp *TokenParser) fetchPoolBalancesConcurrently(ctx context.Context, token 
 }
 
 // fetchSinglePoolBalance is a helper function to fetch the balance of a single pool account.
+// It retries up to 3 times with exponential backoff if it fails.
 func (tp *TokenParser) fetchSinglePoolBalance(ctx context.Context, poolAccount solana.PublicKey, accountType string) float64 {
-
 	if *tp.client == nullClient || tp.client == nil {
 		log.Error().Msg("RPC client is nil")
 		return 0
 	}
 
-	// log.Info().Msgf("Fetching %s balance for %s", accountType, poolAccount.String())
-	pool, err := tp.client.GetTokenAccountBalance(ctx, poolAccount, rpc.CommitmentProcessed)
-	if err != nil || pool == nil {
-		log.Error().Err(err).Msgf("Failed to fetch %s balance", accountType)
-		return 0
+	const maxRetries = 3
+	var attempt int
+	var baseBackoff = time.Millisecond * 500 // initial backoff duration
+
+	for attempt = 0; attempt < maxRetries; attempt++ {
+		// log.Info().Msgf("Fetching %s balance for %s (Attempt %d)", accountType, poolAccount.String(), attempt+1)
+		pool, err := tp.client.GetTokenAccountBalance(ctx, poolAccount, rpc.CommitmentProcessed)
+		if err == nil && pool != nil {
+			amount, parseErr := strconv.ParseFloat(pool.Value.UiAmountString, 64)
+			if parseErr == nil {
+				// log.Info().Msgf("Successfully fetched %s amount: %f", accountType, amount)
+				return amount
+			} else {
+				log.Error().Err(parseErr).Msgf("Error parsing %s amount", accountType)
+			}
+		} else {
+			log.Error().Err(err).Msgf("Failed to fetch %s balance on attempt %d", accountType, attempt+1)
+		}
+
+		// Exponential backoff before retrying
+		time.Sleep(baseBackoff * (1 << attempt)) // increases wait time exponentially: 0.5s, 1s, 2s
 	}
 
-	amount, parseErr := strconv.ParseFloat(pool.Value.UiAmountString, 64)
-	if parseErr != nil {
-		log.Error().Err(parseErr).Msgf("Error parsing %s amount", accountType)
-		return 0
-	}
-
-	// log.Info().Msgf("Parsed %s amount: %f", accountType, amount)
-	return amount
+	log.Error().Msgf("All attempts to fetch %s balance failed", accountType)
+	return 0
 }
 
 // calculateTokenPrice calculates the token price using the constant product formula and logs the result.
@@ -217,7 +227,7 @@ func (tp *TokenParser) GetInfo(ctx context.Context, pubkey string, commitment rp
 		FreezeAuthority: solana.PublicKey{}, // default to empty if nil
 		MintAuthority:   solana.PublicKey{}, // default to empty if nil
 		IsInitialized:   mint.IsInitialized,
-		LastUpdated:     time.Now().UnixMilli(),
+		LastUpdated:     time.Now().UTC().UnixMilli(),
 		Owner:           owner.String(),
 	}
 
@@ -241,7 +251,7 @@ func (tp *TokenParser) GetLargestHolders(ctx context.Context, token *models.Toke
 	largestAccounts := largestAccountsReq.Value
 	largestHolders := models.LargestHolders{
 		Holders:   []models.LargestHolder{},
-		Timestamp: float64(time.Now().UnixMilli()),
+		Timestamp: float64(time.Now().UTC().UnixMilli()),
 	}
 
 	var sumOwned float64 = 0.0
@@ -330,7 +340,7 @@ func (tp *TokenParser) RunAll(ctx context.Context, pubkey string, commitment rpc
 	token.AddTopHolder(*holders)
 	token.Metadata = *meta
 	if basePoolAccount != nil && quotePoolAccount != nil {
-		token.AddPrice(price, float64(time.Now().Unix())) // price isn't using block time, but current time
+		token.AddPrice(price, float64(time.Now().UTC().UnixMilli())) // price isn't using block time, but current time
 	}
 
 	return token, nil

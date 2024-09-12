@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	kafkaManager "github.com/Zaydo123/token-processor/internal/kafka/client"
 	"github.com/Zaydo123/token-processor/internal/token/models"
 	"github.com/Zaydo123/token-processor/internal/token/parser"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -20,7 +21,8 @@ func FollowTopOwnership(ctx context.Context, tokenParser *parser.TokenParser, to
 		// Get the token top ownership and add it to the token object
 		topOwnership, err := tokenParser.GetLargestHolders(ctx, tokenObj, rpc.CommitmentProcessed)
 		//float percentage print
-		log.Info().Msgf("Top Ownership: %f | FRAME %d", topOwnership.TopOwnershipPercentage, len(tokenObj.LargestHolders))
+		// log.Info().Msgf("Top Ownership: %f | FRAME %d", topOwnership.TopOwnershipPercentage, len(tokenObj.LargestHolders))
+
 		if err != nil {
 			//log error
 			log.Error().Msg("Error getting top ownership")
@@ -28,6 +30,9 @@ func FollowTopOwnership(ctx context.Context, tokenParser *parser.TokenParser, to
 		}
 
 		tokenObj.AddTopHolder(*topOwnership) // Add state of top ownership to token object
+
+		// send top ownership to kafka
+		kafkaManager.SendTopHoldersStateToKafka(tokenObj.PublicKeyString, topOwnership)
 
 		if followTime <= 0 {
 			break

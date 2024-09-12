@@ -1,17 +1,18 @@
 version: "3"
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: postgres
+
+  timescale:
+    image: timescale/timescaledb:latest-pg16
+    container_name: timescale
+    restart: always
+    ports:
+      - ${POSTGRES_PORT}:${POSTGRES_PORT}
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "5432:5432"
     volumes:
-      - ./postgres-data:/var/lib/postgresql/data
+      - ./data/timescaledb:/var/lib/postgresql/data
 
   redis:
     image: redis:alpine
@@ -21,13 +22,13 @@ services:
       - redis:/var/lib/redis
       - redis-config:/usr/local/etc/redis/redis.conf
     ports:
-      - ${REDIS_PORT}:6379
+      - ${REDIS_PORT}:${REDIS_PORT}
     networks:
       - redis-network
     env_file:
       - .env
 
-  redis-commander:
+  redis-commander: # for debugging and development
     image: rediscommander/redis-commander:latest
     container_name: redis-commander
     hostname: redis-commander
@@ -35,18 +36,52 @@ services:
     environment:
       REDIS_HOSTS: local:redis:${REDIS_PORT}
     ports:
-      - "8081:8081"
+      - 8080:3000
     networks:
       - redis-network
 
 
+  # Kafa is currently not being hosted in the docker-compose file due to the complexity of the setup.
+  # It is recommended to use hosted Kafka services like Confluent Cloud or AWS MSK or host locally.
 
+  # kafka:
+  #   image: confluentinc/cp-kafka:latest
+  #   container_name: kafka
+  #   ports:
+  #     - ${KAFKA_PORT}:${KAFKA_PORT}
+  #     - ${KAFKA_CONTROLLER_PORT}:${KAFKA_CONTROLLER_PORT}
+  #   environment:
+  #     CLUSTER_ID: 1
+  #     KAFKA_BROKER_ID: 1
+  #     KAFKA_PROCESS_ROLES: 'broker,controller'
+  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+  #     KAFKA_LISTENERS: PLAINTEXT://kafka:${KAFKA_PORT},CONTROLLER://kafka:${KAFKA_CONTROLLER_PORT}
+  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:${KAFKA_PORT}
+  #     KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  #     KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:${KAFKA_CONTROLLER_PORT}'
+  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  #   networks:
+  #     - kafka-network
 
+  # kafdrop:
+  #   image: obsidiandynamics/kafdrop:latest
+  #   # depends_on:
+  #   #   - kafka
+  #   ports:
+  #     - 9000:9000
+  #   environment:
+  #     KAFKA_BROKERCONNECT: kafka:${KAFKA_PORT}
+  #   networks:
+  #     - kafka-network
+
+    
+      
 networks:
   redis-network:
     driver: bridge
+  # kafka-network:
+  #   driver: bridge
 
 volumes:
   redis:
   redis-config:
-  postgres-data:

@@ -2,6 +2,8 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
+	"strconv"
 
 	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
@@ -381,8 +383,6 @@ func (t *Token) AddTopHolder(holders LargestHolders) {
 	t.LargestHolders = append(t.LargestHolders, holders)
 }
 
-// ================ MARSHALING ==========================
-
 // ================== Custom JSON Serialization ==================
 
 func (t *Token) MarshalBinary() ([]byte, error) {
@@ -391,4 +391,49 @@ func (t *Token) MarshalBinary() ([]byte, error) {
 
 func (t *Token) UnmarshalBinary(data []byte) error {
 	return json.Unmarshal(data, t)
+}
+
+// marshal price to json
+func (p *Price) MarshalJSON() ([]byte, error) {
+
+	if p.Time <= 0 {
+		return []byte(`{"price":` + p.Price.String() + `,"time":0}`), errors.New("time is less than or equal to 0")
+	}
+	return []byte(`{"price":` + p.Price.String() + `,"time":` + strconv.FormatFloat(p.Time, 'f', -1, 64) + `}`), nil
+}
+
+// marshal volume to json
+func (v *Volume) MarshalJSON() ([]byte, error) {
+	if v.Time <= 0 {
+		return []byte(`{"volume":` + v.Volume.String() + `,"time":0}`), errors.New("time is less than or equal to 0")
+	}
+	return []byte(`{"volume":` + v.Volume.String() + `,"time":` + strconv.FormatFloat(v.Time, 'f', -1, 64) + `}`), nil
+}
+
+// marshal largest holder to json
+func (lh *LargestHolder) MarshalJSON() ([]byte, error) {
+	return []byte(`{"holder":"` + lh.Holder + `","amount":` + strconv.FormatFloat(lh.Amount, 'f', -1, 64) + `}`), nil
+}
+
+// marshal largest holders to json
+func (lhs *LargestHolders) MarshalJSON() ([]byte, error) {
+	var holders []string
+	for _, holder := range lhs.Holders {
+		holders = append(holders, holder.Holder)
+	}
+	data := struct {
+		Holders                []string `json:"holders"`
+		TopOwnershipPercentage float64  `json:"topOwnershipPercentage"`
+		Timestamp              float64  `json:"timestamp"`
+	}{
+		Holders:                holders,
+		TopOwnershipPercentage: lhs.TopOwnershipPercentage,
+		Timestamp:              lhs.Timestamp,
+	}
+	return json.Marshal(data)
+}
+
+// marshal burn period to json
+func (bp *BurnPeriod) MarshalJSON() ([]byte, error) {
+	return []byte(`{"amountBurned":` + bp.AmountBurned.String() + `,"startTime":` + strconv.FormatInt(bp.StartTime, 10) + `}`), nil
 }

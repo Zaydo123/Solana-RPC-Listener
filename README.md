@@ -1,7 +1,7 @@
 <h1>Solana Token Data Ingestor</h1>
 
 ## Description
-This project, which is in progress, is an G/RPC listener that listens for token transactions on the Raydium Constant Product AMM on the Solana Blockchain. The ingestor primarily focuses on token swap transactions and token mints. It listens for these transactions and stashes the different trade volumes and token metadata properties in Redis then PostgreSQL. From there, the data is then served through a RESTful API to trading and analytical microservices. The token data processing is done in golang for speed, the client API is built using FastAPI, and the G/RPC listener is in pure python. The database used is PostgreSQL, and the ORM used is Prisma. Interservice communication is done primarily via Redis Pub/Sub. The project is deployed using Docker and Docker Compose. Redis Commander is used for debugging and monitoring.
+This project, which is in progress, is an G/RPC listener that listens for token transactions on the Raydium Constant Product AMM on the Solana Blockchain. The ingestor listens for swap transactions and mints along with burns if enabled. It continuously listens for these events and computes price, volume, and holdings changes; constantly caching then streaming the data via Kafka. From there, the data is then served through a RESTful API to trading and analytical microservices. The token data processing is done in golang for speed, the client API is built using FastAPI, and the G/RPC listener is in pure python. The database used is TimescaleDB and Interservice communication is done via Redis Pub/Sub and Kafka. Redis, Redis Commander, and TimescaleDB are currently being deployed using Docker Compose. **You must have a pre-existing Kafka broker to run the project**. It is recommended to host TimescaleDB, Kafka, and Redis on a cloud provider such as AWS, GCP, or Azure. For lowest latency, it is recommended to host the services in the same region/data center.
 
 ## Tech Stack
 | Icon | Name | Description |
@@ -10,12 +10,14 @@ This project, which is in progress, is an G/RPC listener that listens for token 
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/fastapi/fastapi-original.svg" width=50px /> | FastAPI | Framework for the API |
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/go/go-original.svg" width=50px /> | Go | For token data processing |
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/redis/redis-original.svg" width=50px /> | Redis | For caching and pub/sub |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/apachekafka/apachekafka-original.svg" width=50px /> | Kafka | Persistence Queue | 
 | <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/docker/docker-original.svg" width=50px /> | Docker | For containerization |
-| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg" width=50px />| PostgreSQL | For persistent storage |
-| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/prisma/prisma-original.svg" /> | Prisma | As the ORM
+| <img src="https://s3.amazonaws.com/assets.timescale.com/timescale-web/brand-images/badge/black/logo-black.png" width=50px /> | TimescaleDB | Time series database for token data |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg" width=50px />| ~~PostgreSQL~~ | ~~For persistent storage~~ (Migrated to TimescaleDB) |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/prisma/prisma-original.svg" /> | ~~Prisma~~ | ~~As the ORM~~ (Removed during migration) |
 
-## Program Flow Proposal
-<img src="./project_plan.png" width=50% />
+## Updated Program Flow Diagram
+<img src="./final-wireframe.png" width=50% />
 
 ## Installation and Build 
 
@@ -31,30 +33,22 @@ cd Solana-RPC-Listener
 Check the `.env.example` file in the root directory and create a `.env` file with the same variables and values.
 <a href="./.env.example">Click here to view</a> 
 
-Also, create a `.env` file in the `apps/prisma` directory with the following variables:
+### Dependencies for the Python API, G/RPC listener, Logger, and API
 
-| Variable | Description |
-|---|---|
-| DATABASE_URL | The URL to the PostgreSQL database |
-| POSTGRES_DB | The name of the PostgreSQL database |
-| POSTGRES_USER | The username for the PostgreSQL database |
-| POSTGRES_PASSWORD | The password for the PostgreSQL database |
-
-
-### Dependencies for the Python API and G/RPC listener
-change directory to both the `webapp` and `rpc-consumer` directories and run the following command:
+In the apps directory, run the following command to install the dependencies:
 ```bash
 pip install -r requirements.txt
 ```
+
 ### Running the API:
 production run command
 ```bash
 gunicorn -k uvicorn.workers.UvicornWorker main:app
 ```
 
-development run command
+development run command - configured with uvicorn
 ```bash
-uvicorn main:app --reload --port 3000 --host
+python main.py
 ```
 
 ### Running the RPC Consumer:
@@ -74,34 +68,29 @@ run with the following command:
 ./main
 ```
 
-### Applying database migrations
-change directory to the `prisma` directory and run the following commands:
-```bash
-prisma generate
-prisma migrate dev --name init
-```
-
-### Starting PostgreSQL, Redis, Redis Commander
+### Starting TimescaleDB, Redis, Redis Commander
 Managed using Docker Compose. Run the following command in the root directory:
 ```bash 
 docker compose up -d
 ```
 
 Your application should now be running!
-check redis commander at `127.0.0.1:8081` and the API at `127.0.0.1:3000`
+check redis commander on port 8080 and the API on port 3000 by default.
+
+# Common Issues
+1. Pyscopg2 not installing on MacOS
+   1. Install Homebrew
+   2. Install openssl - `brew install openssl`
+   3. If Processor >= M1 Chip:
+      - `export LIBRARY_PATH=$LIBRARY_PATH:/opt/homebrew/opt/openssl/lib` - Adds openssl to the library path
+    - Intel Macs:
+      - `export LIBRARY_PATH=$LIBRARY_PATH:/usr/local/opt/openssl/lib/` - Adds openssl to the library path
+   4. `pip install psycopg2`
 
 
 ## Notes
+- Database automatically creates tables and columns on first run.
+- Migration to TimescaleDB is in progress.
 - The project is still in progress and is not yet complete.
 - Trading services are not being shared in this repository.
-
-## To Do
-1. ~~Finish intrasession volume and pricing recording~~
-2. ~~Add token.Update() function which caches token if last update has been X amount of time determined by env~~
-3. Finish burn processing. Give time series data for token burns like volume and pricing.
-4. ~~Schedule top holders update task~~
-5. ~~Make logger for tokens for data persistance~~ -> logger will be merged into processor and given its own task thread
-6. Make wss api and http api for interacting with processor - should fetch from redis and postgres
-7. add “refresh” endpoint which can refetch a stale token or continue following a token
-8. Migrate to GRPC instead of RPC on the listener 
 
