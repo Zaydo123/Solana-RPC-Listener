@@ -4,7 +4,7 @@ Date:    2024-09-12
 Purpose: Create the tables for the TimescaleDB database, convert relevant tables to hypertables, and apply compression policies.
 */
 
-/*
+
 -- Table for storing token information
 CREATE TABLE IF NOT EXISTS Token (
     id TEXT PRIMARY KEY,  -- Token ID
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS VolumePeriods (
 );
 
 -- Convert VolumePeriods table to hypertable
-SELECT create_hypertable('VolumePeriods', 'periodStart', create_default_indexes => TRUE, if_not_exists => TRUE);
+SELECT create_hypertable('VolumePeriods', 'periodstart', create_default_indexes => TRUE, if_not_exists => TRUE);
 
 -- Set compression policy for VolumePeriods table (compress chunks older than 2 days)
 ALTER TABLE VolumePeriods SET (timescaledb.compress, timescaledb.compress_segmentby = 'tokenID');
@@ -93,9 +93,8 @@ CREATE TABLE IF NOT EXISTS BurnPeriods (
 );
 
 -- Convert BurnPeriods table to hypertable
-SELECT create_hypertable('BurnPeriods', 'periodStart', create_default_indexes => TRUE, if_not_exists => TRUE);
+SELECT create_hypertable('BurnPeriods', 'periodstart', create_default_indexes => TRUE, if_not_exists => TRUE);
 
 -- Set compression policy for BurnPeriods table (compress chunks older than 2 days)
 ALTER TABLE BurnPeriods SET (timescaledb.compress, timescaledb.compress_segmentby = 'tokenID');
 SELECT add_compression_policy('BurnPeriods', INTERVAL '2 days', if_not_exists => TRUE);
-*/
