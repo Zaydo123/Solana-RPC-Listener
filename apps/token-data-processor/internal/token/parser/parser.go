@@ -59,7 +59,7 @@ func (tp *TokenParser) GetPrice(ctx context.Context, token models.Token) decimal
 		return zeroPrice
 	}
 
-	price := tp.calculateTokenPrice(basePoolAmt, quotePoolAmt, token.Metadata.Data.Name)
+	price := tp.calculateTokenPrice(basePoolAmt, quotePoolAmt)
 	return price
 }
 
@@ -150,7 +150,7 @@ func (tp *TokenParser) fetchSinglePoolBalance(ctx context.Context, poolAccount s
 }
 
 // calculateTokenPrice calculates the token price using the constant product formula and logs the result.
-func (tp *TokenParser) calculateTokenPrice(basePoolAmt, quotePoolAmt float64, tokenName string) decimal.Decimal {
+func (tp *TokenParser) calculateTokenPrice(basePoolAmt, quotePoolAmt float64) decimal.Decimal {
 	price := decimal.NewFromFloat(quotePoolAmt).Div(decimal.NewFromFloat(basePoolAmt))
 	return price
 }

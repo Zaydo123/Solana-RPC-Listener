@@ -3,7 +3,7 @@ package client
 import (
 	"github.com/Zaydo123/token-processor/internal/config"
 	"github.com/Zaydo123/token-processor/internal/token/models"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/rs/zerolog/log"
 )
 

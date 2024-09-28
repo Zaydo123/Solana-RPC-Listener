@@ -1,3 +1,9 @@
+# FOR FUTURE ZAYD, if u are not zayd, then ignore this message.
+# LAST TIME I WORKED ON THIS I JUST MADE THE COMPOSE FOR THE CONSUMER AND PROCESSOR, also added kafka and its browser at port 8081
+# Next on list: add events api after finishing that. BUT BEFORE THAT, make a new .env in processor folder so that theres not a massive .env file in the root directory
+# ALSO REMEMBER U RENAMED A COUPLE OF ENV VARIABLES
+# THEN UPDATE DOCS
+# also add myapp to gitignore
 version: "3"
 
 services:
@@ -13,7 +19,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ./data/timescaledb:/var/lib/postgresql/data
-
+    networks:
+      - kafka-network
+      
   redis:
     image: redis:alpine
     container_name: redis
@@ -23,12 +31,13 @@ services:
       - redis-config:/usr/local/etc/redis/redis.conf
     ports:
       - ${REDIS_PORT}:${REDIS_PORT}
-    networks:
-      - redis-network
     env_file:
       - .env
+    networks:
+      - redis-network
 
   redis-commander: # for debugging and development
+    platform: linux/amd64 # for M1+ Macs
     image: rediscommander/redis-commander:latest
     container_name: redis-commander
     hostname: redis-commander
@@ -36,51 +45,77 @@ services:
     environment:
       REDIS_HOSTS: local:redis:${REDIS_PORT}
     ports:
-      - 8080:3000
+      - 8080:8081 # external:internal
     networks:
       - redis-network
+    depends_on:
+      - redis
 
+  kafka:
+    image: 'bitnami/kafka:latest'
+    container_name: kafka
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+    networks:
+      - kafka-network
 
-  # Kafa is currently not being hosted in the docker-compose file due to the complexity of the setup.
-  # It is recommended to use hosted Kafka services like Confluent Cloud or AWS MSK or host locally.
+  kafka-ui:
+    container_name: kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 8081:8080
+    environment:
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    volumes:
+      - ./kafka-ui-config.yml:/etc/kafkaui/dynamic_config.yaml
+    networks:
+      - kafka-network
 
-  # kafka:
-  #   image: confluentinc/cp-kafka:latest
-  #   container_name: kafka
-  #   ports:
-  #     - ${KAFKA_PORT}:${KAFKA_PORT}
-  #     - ${KAFKA_CONTROLLER_PORT}:${KAFKA_CONTROLLER_PORT}
-  #   environment:
-  #     CLUSTER_ID: 1
-  #     KAFKA_BROKER_ID: 1
-  #     KAFKA_PROCESS_ROLES: 'broker,controller'
-  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-  #     KAFKA_LISTENERS: PLAINTEXT://kafka:${KAFKA_PORT},CONTROLLER://kafka:${KAFKA_CONTROLLER_PORT}
-  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:${KAFKA_PORT}
-  #     KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-  #     KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:${KAFKA_CONTROLLER_PORT}'
-  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-  #   networks:
-  #     - kafka-network
+  # -------------
+  # Applications
+  # -------------
 
-  # kafdrop:
-  #   image: obsidiandynamics/kafdrop:latest
-  #   # depends_on:
-  #   #   - kafka
-  #   ports:
-  #     - 9000:9000
-  #   environment:
-  #     KAFKA_BROKERCONNECT: kafka:${KAFKA_PORT}
-  #   networks:
-  #     - kafka-network
+  rpc-consumer:
+    container_name: rpc-consumer
+    build:
+      context: ./apps/rpc-consumer
+      dockerfile: Dockerfile
+    command: python main.py
+    env_file:
+      - .env
+    networks:
+      - redis-network
+    depends_on:
+      - redis
+    restart: always
 
-    
-      
+  token-processor:
+    container_name: token-processor
+    build:
+      context: ./apps/token-data-processor
+      dockerfile: Dockerfile
+    command: ./main
+    env_file:
+      - .env
+    networks:
+      - redis-network
+      - kafka-network
+    depends_on:
+      - redis
+      - kafka
+    restart: always
+
 networks:
   redis-network:
     driver: bridge
-  # kafka-network:
-  #   driver: bridge
+  kafka-network:
+    driver: bridge
+
 
 volumes:
   redis:
