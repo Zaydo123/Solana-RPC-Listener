@@ -69,6 +69,8 @@ services:
       - ./kafka-ui-config.yml:/etc/kafkaui/dynamic_config.yaml
     networks:
       - kafka-network
+    depends_on:
+      - kafka
 
   # -------------
   # Applications
