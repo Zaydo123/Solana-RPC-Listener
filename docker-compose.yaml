@@ -57,6 +57,12 @@ services:
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
     networks:
       - kafka-network
+    volumes:
+      - kafka-data:/bitnami/kafka
+    ports:
+      - 9092:9092
+      - 9093:9093
+      
 
   kafka-ui:
     container_name: kafka-ui
@@ -112,3 +118,4 @@ networks:
 volumes:
   redis:
   redis-config:
+  kafka-data:
