@@ -163,6 +163,7 @@ func receiveSwapMessages(ctx context.Context, wg *sync.WaitGroup, tokenMap *map[
 			foundToken, notFoundError := get.GetTokenData(swapEvent.Data.TokenAddress)
 			if notFoundError != nil {
 				log.Error().Msg("Token not found in redis cache")
+				log.Error().Err(notFoundError)
 				continue
 			}
 			//add to token map

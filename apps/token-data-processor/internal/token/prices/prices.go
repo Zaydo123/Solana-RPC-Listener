@@ -7,7 +7,7 @@ import (
 	kafkaManager "github.com/Zaydo123/token-processor/internal/kafka/client"
 	"github.com/Zaydo123/token-processor/internal/token/models"
 	"github.com/Zaydo123/token-processor/internal/token/parser"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/shopspring/decimal"
 )
 

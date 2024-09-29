@@ -159,6 +159,7 @@ func CleanupUnknownTokens() {
 		}
 	}
 	log.Info().Msgf("Cleaned up %d unknown tokens", totalDeleted)
+	totalDeleted = 0
 }
 
 // BlackListRefreshTask reloads the blacklist from the file every intervalSeconds seconds

@@ -1,0 +1,5 @@
+solana==0.33.0
+solders==0.21.0
+redis==5.0.8
+colorama==0.4.6
+python-dotenv==1.0.1

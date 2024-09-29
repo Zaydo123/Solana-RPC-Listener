@@ -1,18 +1,17 @@
 from classes import LogsSubscriptionHandler, TransactionSubscriptionHandler, Transaction
-from solders.transaction_status import ParsedInstruction # temporary
+from solders.transaction_status import ParsedInstruction
 from solders.rpc.config import RpcTransactionLogsFilterMentions
 from events import NewPairEvent, BurnEvent, SwapEvent
 from solana.rpc.commitment import Confirmed
-from collections.abc import Mapping, Iterable
 from solana.rpc.async_api import AsyncClient
 from dotenv import load_dotenv, find_dotenv
 from solders.signature import Signature
-from colorama import Fore, Back, init
+from colorama import Fore, init
 from solders.pubkey import Pubkey
 from helpers import HealthTask
 from threading import Thread
 import json, os, asyncio
-import logging, colorama
+import logging
 from redis import Redis
 import traceback
 import time
@@ -169,7 +168,7 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                     handler_swaps = TransactionSubscriptionHandler({"rpc":os.environ.get("WSS_PROVIDER_TRANSACTIONS"), "http":os.environ.get("HTTP_PROVIDER_TRANSACTIONS")}, filter=pool_account_filter)
                     subscriptions[subscription_key] = handler_swaps
                     asyncio.create_task(handler_swaps.listen(swap_callback, base)) # target_token is the base token in the pair (makes it easier to filter out noise in swap transactions)
-                    followLen = int(os.getenv("PRICE_FOLLOW_TIME")) if os.getenv("PRICE_FOLLOW_TIME") is not None else 60
+                    followLen = int(os.getenv("TRACKING_LENGTH")) if os.getenv("TRACKING_LENGTH") is not None else 60
                     asyncio.create_task(unsubscribe_after_timeout(subscription_key, duration=followLen))
                     logging.info(f"Subscribed to {subscription_key}")
                 else:
@@ -184,10 +183,6 @@ async def callback_raydium(ctx: AsyncClient, data: str):
                             for i in instruction.instructions:
                                 if type(i)==ParsedInstruction:
                                     if(i.parsed["type"].find("burn") != -1):
-                                        # publish_data = {}
-                                        # publish_data["info"] = i.parsed.get("info")
-                                        # publish_data["block_time"] = res.value.block_time
-
                                         info = i.parsed.get("info")
                                         if isinstance(info, dict):
                                             mint = info.get("mint")

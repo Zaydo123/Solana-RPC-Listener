@@ -1,14 +1,17 @@
+# app.include_router(token_routes.router, prefix="/api", tags=["tokens"])
+import uvicorn
 from typing import AsyncIterator
 from dotenv import find_dotenv, load_dotenv
 import logging, asyncio, json
 from fastapi import FastAPI
 from colorama import Fore
 from redis import Redis
-from confluent_kafka import Consumer
+from confluent_kafka import Consumer, KafkaError
+
 from contextlib import asynccontextmanager
 import os
 import datetime
-from routes import token_routes
+# from routes import token_routes
 
 logging.basicConfig(level=logging.INFO, format=f'{Fore.MAGENTA}[API]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
 load_dotenv(find_dotenv(".env"))
@@ -17,7 +20,6 @@ api_host = os.getenv("API_HOST")
 api_port = os.getenv("API_PORT") 
 
 redis_port = os.getenv("REDIS_PORT")
-token_stale_channel = os.getenv("REDIS_STALE_CHANNEL")
 
 kafka_remote = os.getenv("KAFKA_BROKER")
 kafka_port = os.getenv("KAFKA_PORT")
@@ -52,7 +54,6 @@ async def listen_to_all_topics():
             'auto.offset.reset': 'earliest'
         })
         return consumer
-    
     except Exception as e:
         logging.error(f"Error in Kafka consumer: {e}")
         exit(1)
@@ -62,25 +63,41 @@ async def pub_to_timescale(data: dict):
 
 async def kafka_listener():
     # kafka consumer task
-    consumer = await listen_to_all_topics()
-    consumer.subscribe(interested_topics)
+    try:
+        consumer = await listen_to_all_topics()
+        consumer.subscribe(interested_topics)
+    except Exception as e:
+        print("FUCK")
+
     logging.info("Subscribed to topics")
 
     while True:
-        message = consumer.poll(timeout=1.0)
+        try:
+            message = consumer.poll(timeout=1.0)
 
-        if message is None:
-            continue
-        if message.error():
-            logging.error(f"Consumer error: {message.error()}")
-            continue
+            if message is None:
+                continue
+            if message.error():
 
-        topic = message.topic()
-        key = message.key()
-        value = message.value()
-        timestamp = datetime.datetime.fromtimestamp(message.timestamp()[1] / 1e3)
+                logging.error(str(message.error()))
+                
+                if "UNKNOWN_TOPIC_OR_PART" in str(message.error()):
+                    logging.fatal("(SETUP) - Need to create topics on Kafka")
+                    exit(1)
 
-        logging.info(f"Received message: {topic} {key} {value} {timestamp}")
+                logging.error(f"Consumer error: {message.error()}")
+                continue
+
+            topic = message.topic()
+            key = message.key()
+            value = message.value()
+            timestamp = datetime.datetime.fromtimestamp(message.timestamp()[1] / 1e3)
+            logging.info(f"Received message: {topic} {key} {value} {timestamp}")
+
+            
+        except Exception as e:
+            logging.error(f"Error in Kafka listener: {e}")
+            exit(1)
 
 
 @asynccontextmanager
@@ -90,16 +107,16 @@ async def start_kafka_listener(application: FastAPI):
     logging.info("Stopping Kafka listener")
 
 app = FastAPI(lifespan=start_kafka_listener)
-app.include_router(token_routes.router, prefix="/api", tags=["tokens"])
-
+# app.include_router(token_routes.router, prefix="/api", tags=["tokens"])
 
 if __name__ == "__main__":
-    import uvicorn 
     try:
         logging.info("Starting Kafka listener")
-
         logging.info("Starting API")
-        uvicorn.run(app, host=api_host, port=int(api_port))  # Run the app directly without asyncio.run()
+
+        config = uvicorn.Config(app, host=api_host, port=int(api_port), loop="asyncio")
+        server = uvicorn.Server(config)
+        server.run()
     except Exception as e:
         logging.error(f"Error in main: {e}")
         exit(1)
