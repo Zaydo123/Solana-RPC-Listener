@@ -20,6 +20,15 @@ This project, which is in progress, is an G/RPC listener that listens for token 
 <img src="./final-wireframe.png" width=50% />
 
 
+###  Bundled Services & Default Ports
+- Redis :6379 Default
+- Redis Commander :8080 Default
+- Kafka :9092 Default
+- Kafka-UI :8081 Default
+- TimescaleDB :5432 Default
+
+
+
 # SIMPLE INSTALLATION
 
 ### Clone the repository
