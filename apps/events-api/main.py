@@ -20,7 +20,6 @@ api_host = os.getenv("API_HOST")
 api_port = os.getenv("API_PORT") 
 
 redis_port = os.getenv("REDIS_PORT")
-token_stale_channel = os.getenv("REDIS_STALE_CHANNEL")
 
 kafka_remote = os.getenv("KAFKA_BROKER")
 kafka_port = os.getenv("KAFKA_PORT")

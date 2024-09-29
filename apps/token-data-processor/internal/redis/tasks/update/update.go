@@ -82,11 +82,10 @@ func UpdateTask(tokenMap *map[string]*models.Token) {
 						//send last token object to kafka - without volume, burn, price - just to update meta and Totalbuy/sell totalburn, etx
 						kafkaManager.SendFinalUpdateToKafka(token)
 
-						//send to stale tokens redis channel for persistence to db
-						clientManager.BroadcastMessage(config.ApplicationConfig.StaleChannel, token.PublicKeyString)
+						//delete from local store
 						delete(*tokenMap, key)
 					} else {
-						log.Info().Msgf("Token data for %s is dead. Not removing from local store because it was never cached.", key)
+						log.Warn().Msgf("Token data for %s is dead. Not removing from local store because it was never cached.", key) //should never happen (hopefully)
 					}
 				}
 			}

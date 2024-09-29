@@ -27,7 +27,6 @@ type Config struct {
 	NewPairsChannel       string
 	ParsedPairsChannel    string
 	SwapsChannel          string
-	StaleChannel          string
 	RPCURL                string
 	RPCRateLimitTime      int
 	RPCRateLimitBurst     int
@@ -109,14 +108,12 @@ func ParseEnv() *Config {
 	ApplicationConfig.RedisPassword = GetEnv("REDIS_PASSWORD")
 	ApplicationConfig.BurnsChannel = GetEnv("REDIS_BURNS_CHANNEL")
 	ApplicationConfig.NewPairsChannel = GetEnv("REDIS_NEW_PAIRS_CHANNEL")
-	ApplicationConfig.ParsedPairsChannel = GetEnv("REDIS_PARSED_PAIRS_CHANNEL")
 	ApplicationConfig.PricesTopic = GetEnv("KAFKA_PRICES_TOPIC")
 	ApplicationConfig.VolumesTopic = GetEnv("KAFKA_VOLUMES_TOPIC")
 	ApplicationConfig.TopHoldersTopic = GetEnv("KAFKA_TOP_HOLDERS_TOPIC")
 	ApplicationConfig.BurnsTopic = GetEnv("KAFKA_BURNS_TOPIC")
 	ApplicationConfig.TokensTopic = GetEnv("KAFKA_TOKENS_TOPIC")
 	ApplicationConfig.SwapsChannel = GetEnv("REDIS_SWAPS_CHANNEL")
-	ApplicationConfig.StaleChannel = GetEnv("REDIS_STALE_CHANNEL")
 	ApplicationConfig.RPCURL = GetEnv("HTTP_PROVIDER_MAIN")
 	rateLimitTime, err1 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_TIME"))
 	rateLimitBurst, err2 := strconv.Atoi(GetEnv("PROVIDER_MAIN_RATE_LIMIT_BURST"))
