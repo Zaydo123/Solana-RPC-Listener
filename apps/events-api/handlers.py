@@ -23,9 +23,22 @@ if len(missing_env_vars) > 0:
     Database connection
 """
 
-DB = database.Database(os.getenv("POSTGRES_HOST"), os.getenv("POSTGRES_PORT"), os.getenv("POSTGRES_USER"), os.getenv("POSTGRES_PASSWORD"), os.getenv("POSTGRES_SSL_MODE")) #type: ignore
+dbconfig = {
+    "host": os.getenv("POSTGRES_HOST"),
+    "port": os.getenv("POSTGRES_PORT"),
+    "db": os.getenv("POSTGRES_DB"),
+    "username": os.getenv("POSTGRES_USER"),
+    "password": os.getenv("POSTGRES_PASSWORD"),
+    "schema": os.getenv("POSTGRES_SCHEMA"),
+    "ssl": os.getenv("POSTGRES_SSL_MODE")
+}
+
+DB = database.Database(**dbconfig)
 logging.info("Creating tables")
 DB.create_tables()
+DB.conn_still_alive()
+
+
 logging.info("Creating insertion procedures")
 DB.create_insertion_procedures()
 
@@ -68,6 +81,7 @@ async def store_token(data: dict):
         
     except Exception as e:
         logging.error(f"Error in storing token: {e}")
+        logging.error(f"Type: {type(e)}")
         raise
 
 # Handler for price events (Inserts price data into the database)
