@@ -7,27 +7,23 @@ from colorama import Fore
 from redis import Redis
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from contextlib import asynccontextmanager
+from dispatcher import pub_to_timescale
 import os, sys, socket
-import datetime
-# from routes import token_routes
-
-logging.basicConfig(level=logging.INFO, format=f'{Fore.MAGENTA}[API]{Fore.RESET} %(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
-
 # - - - - - CONFIG - - - - -
 
 load_dotenv(find_dotenv(".env"))
 api_host = os.getenv("API_HOST")
-api_port = os.getenv("API_PORT") 
+api_port = os.getenv("API_PORT")
 redis_port = os.getenv("REDIS_PORT")
 kafka_remote = os.getenv("KAFKA_BROKER")
 kafka_port = os.getenv("KAFKA_PORT")
 
 interested_topics = [
-    os.getenv("KAFKA_PRICES_TOPIC"),
-    os.getenv("KAFKA_VOLUMES_TOPIC"),
-    os.getenv("KAFKA_TOP_HOLDERS_TOPIC"),
-    os.getenv("KAFKA_BURNS_TOPIC"),
-    os.getenv("KAFKA_TOKENS_TOPIC"),
+    str(os.getenv("KAFKA_PRICES_TOPIC")),
+    str(os.getenv("KAFKA_VOLUMES_TOPIC")),
+    str(os.getenv("KAFKA_TOP_HOLDERS_TOPIC")),
+    str(os.getenv("KAFKA_BURNS_TOPIC")),
+    str(os.getenv("KAFKA_TOKENS_TOPIC")),
 ]
 
 event_types = {
@@ -50,11 +46,8 @@ sys.exit(1) if terminate else None
 
 term_deadline_timestamp = None
 consumer = None
+
 redis = Redis(host=str(os.getenv("REDIS_HOST")), port=int(redis_port), db=0) #type: ignore
-
-async def pub_to_timescale(data: dict):
-    logging.info(f"Publishing to Timescale: {data}")
-
 
 async def commit_callback(err, partitions):
     if err:
@@ -69,13 +62,13 @@ async def kafka_listener():
         logging.info(f"Connecting to Kafka: {kafka_remote}:{kafka_port}")
         consumer = Consumer(
             {
-                'bootstrap.servers': kafka_remote,
+                'bootstrap.servers': f"{kafka_remote}:{kafka_port}",
                 'group.id': 'logger-api',
                 'session.timeout.ms': 6000,
-                'on_commit': commit_callback,
                 'auto.offset.reset': 'earliest'
             }
         )
+        logging.info("Connected to Kafka")
 
     except KafkaError as e:
         logging.error(f"KafkaError -> : {e}")
@@ -94,14 +87,14 @@ async def kafka_listener():
         try:
             message = consumer.poll(timeout=1.0)
 
-            if message is None: continue
+            if message is None:
+                continue
 
             if message.error():
-
                 if message.error().code() == KafkaError._PARTITION_EOF:
                     logging.error(f"End of partition reached {message.topic()} {message.partition()} {message.offset()}")
                 elif message.error():
-                    logging.error(f"Consumer error: {msg.error()}")
+                    logging.error(f"Consumer error: {message.error()}")
                     raise KafkaException(message.error())
                 elif "UNKNOWN_TOPIC_OR_PART" in str(message.error()):
                     logging.info(f"Topic not found: {message.topic()}... making topics: {interested_topics}")
@@ -109,8 +102,8 @@ async def kafka_listener():
 
             # Process message
             topic = message.topic(); key = message.key(); value = message.value()
-            logging.info(f"Received message: {topic} {key} {value}")
-            await pub_to_timescale(json.loads(value))
+            logging.info(f"Received message: from topic: {topic}, key: {key}")
+            await pub_to_timescale(topic,json.loads(value))
 
         except Exception as e:
             logging.error(f"Error in Kafka listener: {e}")
