@@ -386,7 +386,12 @@ func (t *Token) AddTopHolder(holders LargestHolders) {
 // ================== Custom JSON Serialization ==================
 
 func (t *Token) MarshalBinary() ([]byte, error) {
-	return json.Marshal(t)
+	type Alias Token
+	return json.Marshal(&struct {
+		*Alias
+	}{
+		Alias: (*Alias)(t),
+	})
 }
 
 func (t *Token) UnmarshalBinary(data []byte) error {
@@ -397,34 +402,46 @@ func (t *Token) UnmarshalBinary(data []byte) error {
 func (p *Price) MarshalJSON() ([]byte, error) {
 
 	if p.Time <= 0 {
-		return []byte(`{"price":` + p.Price.String() + `,"time":0}`), errors.New("time is less than or equal to 0")
+		return []byte(`{"price":"` + p.Price.String() + `","time":0}`), errors.New("time is less than or equal to 0")
 	}
-	return []byte(`{"price":` + p.Price.String() + `,"time":` + strconv.FormatFloat(p.Time, 'f', -1, 64) + `}`), nil
+	return []byte(`{"price":"` + p.Price.String() + `","time":` + strconv.FormatFloat(p.Time, 'f', -1, 64) + `}`), nil
 }
 
 // marshal volume to json
 func (v *Volume) MarshalJSON() ([]byte, error) {
 	if v.Time <= 0 {
-		return []byte(`{"volume":` + v.Volume.String() + `,"time":0}`), errors.New("time is less than or equal to 0")
+		return []byte(`{"volume":"` + v.Volume.String() + `","time":0}`), errors.New("time is less than or equal to 0")
 	}
-	return []byte(`{"volume":` + v.Volume.String() + `,"time":` + strconv.FormatFloat(v.Time, 'f', -1, 64) + `}`), nil
+	return []byte(`{"volume":"` + v.Volume.String() + `","time":` + strconv.FormatFloat(v.Time, 'f', -1, 64) + `}`), nil
 }
 
 // marshal largest holder to json
 func (lh *LargestHolder) MarshalJSON() ([]byte, error) {
-	return []byte(`{"holder":"` + lh.Holder + `","amount":` + strconv.FormatFloat(lh.Amount, 'f', -1, 64) + `}`), nil
+	return []byte(`{"holder":"` + lh.Holder + `","amount":"` + strconv.FormatFloat(lh.Amount, 'f', -1, 64) + `}"`), nil
 }
 
 // marshal largest holders to json
 func (lhs *LargestHolders) MarshalJSON() ([]byte, error) {
-	var holders []string
+	var holders []struct {
+		Holder string  `json:"holder"`
+		Amount float64 `json:"amount"`
+	}
 	for _, holder := range lhs.Holders {
-		holders = append(holders, holder.Holder)
+		holders = append(holders, struct {
+			Holder string  `json:"holder"`
+			Amount float64 `json:"amount"`
+		}{
+			Holder: holder.Holder,
+			Amount: holder.Amount,
+		})
 	}
 	data := struct {
-		Holders                []string `json:"holders"`
-		TopOwnershipPercentage float64  `json:"topOwnershipPercentage"`
-		Timestamp              float64  `json:"timestamp"`
+		Holders []struct {
+			Holder string  `json:"holder"`
+			Amount float64 `json:"amount"`
+		} `json:"holders"`
+		TopOwnershipPercentage float64 `json:"topOwnershipPercentage"`
+		Timestamp              float64 `json:"timestamp"`
 	}{
 		Holders:                holders,
 		TopOwnershipPercentage: lhs.TopOwnershipPercentage,
@@ -435,5 +452,5 @@ func (lhs *LargestHolders) MarshalJSON() ([]byte, error) {
 
 // marshal burn period to json
 func (bp *BurnPeriod) MarshalJSON() ([]byte, error) {
-	return []byte(`{"amountBurned":` + bp.AmountBurned.String() + `,"startTime":` + strconv.FormatInt(bp.StartTime, 10) + `}`), nil
+	return []byte(`{"amountBurned":"` + bp.AmountBurned.String() + `","startTime":` + strconv.FormatInt(bp.StartTime, 10) + `}`), nil
 }
