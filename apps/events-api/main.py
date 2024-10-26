@@ -85,7 +85,7 @@ async def kafka_listener():
 
     while True:
         try:
-            message = consumer.poll(timeout=1.0)
+            message = consumer.poll(timeout=0.0)
 
             if message is None:
                 continue

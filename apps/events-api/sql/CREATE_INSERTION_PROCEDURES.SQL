@@ -53,7 +53,7 @@ BEGIN
         PERFORM insert_token_price(p_publickey, p_price, p_pricetimestamp);
 
         -- Call the procedure to insert holders
-        PERFORM insert_token_holders(p_publickey, p_holders);
+        PERFORM insert_token_holders(p_publickey, p_holders, NOW()::DOUBLE PRECISION);
 
         -- Call the procedure to insert the initial volume period (0 buy/sell volume)
         PERFORM insert_initial_volume(token_id, to_timestamp(p_ipo)::TIMESTAMPTZ);
@@ -91,6 +91,12 @@ BEGIN
     -- Fetch the token ID based on the public key
     SELECT id INTO token_id FROM token WHERE publickey = p_publickey;
 
+    -- if NULL raise an exception 
+    IF token_id IS NULL THEN
+        RAISE EXCEPTION 'Token with public key %% not found', p_publickey;
+    END IF;
+
+
     -- Insert the price data for the token
     INSERT INTO price (tokenid, price, timestamp)
     VALUES (token_id, p_price, to_timestamp(p_pricetimestamp)::TIMESTAMPTZ)
@@ -110,7 +116,8 @@ Procedure to insert holders for a token from a JSON array
 */
 CREATE OR REPLACE PROCEDURE insert_token_holders (
     p_publickey TEXT,
-    p_holders JSONB
+    p_holders JSONB,
+    p_timestamp DOUBLE PRECISION
 )
 LANGUAGE plpgsql
 AS $$
@@ -124,12 +131,17 @@ BEGIN
     -- Fetch the token ID based on the public key
     SELECT id INTO token_id FROM token WHERE publickey = p_publickey;
 
+        -- if NULL raise an exception 
+    IF token_id IS NULL THEN
+        RAISE EXCEPTION 'Token with public key %% not found', p_publickey;
+    END IF;
+
     -- Loop through each holder in the holders JSON array
     FOR holder IN SELECT * FROM jsonb_array_elements(p_holders) LOOP
         -- Extract the holder data
         holder_address := holder->>'holder';
         holder_amount := (holder->>'amount')::NUMERIC;
-        holder_timestamp := NOW(); -- Assuming the timestamp is now
+        holder_timestamp := to_timestamp(p_timestamp)::TIMESTAMPTZ;
 
         -- Insert into the largestholder table
         INSERT INTO largestholder (tokenid, holder, amount, timestamp)
@@ -175,7 +187,6 @@ Procedure to update the volume for a token based on Kafka message data
 */
 CREATE OR REPLACE PROCEDURE update_token_volume (
     p_publickey TEXT,
-    p_totalvolume NUMERIC,
     p_buyvolume NUMERIC,
     p_sellvolume NUMERIC,
     p_timestamp DOUBLE PRECISION
@@ -188,12 +199,16 @@ BEGIN
     -- Fetch the token ID based on the public key
     SELECT id INTO token_id FROM token WHERE publickey = p_publickey;
 
+    -- if NULL raise an exception 
+    IF token_id IS NULL THEN
+        RAISE EXCEPTION 'Token with public key %% not found', p_publickey;
+    END IF;
+
     -- Update the token's total volume, total buy/sell volume in the token table
     UPDATE token
     SET 
         totalbuyvolume = totalbuyvolume + p_buyvolume,
-        totalsellvolume = totalsellvolume + p_sellvolume,
-        totalsellvolume = p_totalvolume  -- Update the total volume with new value
+        totalsellvolume = totalsellvolume + p_sellvolume
     WHERE id = token_id;
 
     -- Insert or update the volume period for the token, cast timestamp to TIMESTAMPTZ

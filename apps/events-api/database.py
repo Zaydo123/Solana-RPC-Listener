@@ -60,24 +60,30 @@ class Database:
         self.conn.commit()
         return result
     
-    def call_procedure(self, procedure, *args, retries=3):
-        # Construct the SQL CALL statement with explicit type casting for TEXT and TIMESTAMPTZ
-        query_parts = []
-        for i, arg in enumerate(args):
-            if isinstance(arg, str):  # Cast strings to TEXT
-                query_parts.append("CAST(%s AS TEXT)")
-            else:
-                # do not cast for other types
-                query_parts.append("%s")
-                
 
-        query = f"CALL {procedure}({', '.join(query_parts)})"
-        
+    def call_procedure(self, procedure, typeList, *args, retries=2):
         attempt = 0
         while attempt < retries:
             try:
                 with self.conn.cursor() as cursor:
+                    # Construct the SQL CALL statement with placeholders
+                    query = f"CALL {procedure}("
+                    placeholders = []
+                    for i in range(len(typeList)):
+                        if typeList[i] in ["TEXT", "VARCHAR", "JSONB"]:
+                            # Handle string-like types
+                            placeholders.append(f"%s::{typeList[i]}")
+                        else:
+                            # Handle non-string types
+                            placeholders.append(f"%s::{typeList[i]}")
+
+                    query += ", ".join(placeholders)
+                    query += ")"
+
+                    # Debug log for query construction
                     logging.debug(f"Calling procedure: {query} with args: {args}")
+                    
+                    # Execute query with parameters safely
                     cursor.execute(query, args)
                     self.conn.commit()  # Commit the transaction if successful
                     logging.info(f"Procedure {procedure} executed successfully")
@@ -91,8 +97,8 @@ class Database:
                     time.sleep(1)  # Optional: Wait 1 second before retrying
                 else:
                     raise
+        return
 
-    
     def create_tables(self):
         return self.execute_script("CREATE_TABLES")
 
