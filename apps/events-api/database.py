@@ -5,7 +5,7 @@ import logging
 import os
 load_dotenv(find_dotenv(".env"))
 
-logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 
 class Database: 
 
@@ -61,43 +61,34 @@ class Database:
         return result
     
 
-    def call_procedure(self, procedure, typeList, *args, retries=2):
-        attempt = 0
-        while attempt < retries:
-            try:
-                with self.conn.cursor() as cursor:
-                    # Construct the SQL CALL statement with placeholders
-                    query = f"CALL {procedure}("
-                    placeholders = []
-                    for i in range(len(typeList)):
-                        if typeList[i] in ["TEXT", "VARCHAR", "JSONB"]:
-                            # Handle string-like types
-                            placeholders.append(f"%s::{typeList[i]}")
-                        else:
-                            # Handle non-string types
-                            placeholders.append(f"%s::{typeList[i]}")
+    def call_procedure(self, procedure, typeList, *args):
+        try:
+            with self.conn.cursor() as cursor:
+                # Construct the SQL CALL statement with placeholders
+                query = f"CALL {procedure}("
+                placeholders = []
+                for i in range(len(typeList)):
+                    if typeList[i] in ["TEXT", "VARCHAR", "JSONB"]:
+                        # Handle string-like types
+                        placeholders.append(f"%s::{typeList[i]}")
+                    else:
+                        # Handle non-string types
+                        placeholders.append(f"%s::{typeList[i]}")
 
-                    query += ", ".join(placeholders)
-                    query += ")"
+                query += ", ".join(placeholders)
+                query += ")"
 
-                    # Debug log for query construction
-                    logging.debug(f"Calling procedure: {query} with args: {args}")
-                    
-                    # Execute query with parameters safely
-                    cursor.execute(query, args)
-                    self.conn.commit()  # Commit the transaction if successful
-                    logging.info(f"Procedure {procedure} executed successfully")
-                    return  # Exit if successful
-            except Exception as e:
-                self.conn.rollback()  # Rollback the transaction in case of error
-                logging.error(f"Error calling procedure {procedure}: {e}")
-                attempt += 1
-                if attempt < retries:
-                    logging.info(f"Retrying... attempt {attempt + 1}/{retries}")
-                    time.sleep(1)  # Optional: Wait 1 second before retrying
-                else:
-                    raise
-        return
+                # Debug log for query construction
+                logging.debug(f"Calling procedure: {query} with args: {args}")
+                
+                # Execute query with parameters safely
+                cursor.execute(query, args)
+                self.conn.commit()  # Commit the transaction if successful
+                logging.info(f"Procedure {procedure} executed successfully")
+                return  # Exit if successful
+        except Exception as e:
+            self.conn.rollback()  # Rollback the transaction in case of error
+            logging.error(f"Error calling procedure {procedure}: {e}")
 
     def create_tables(self):
         return self.execute_script("CREATE_TABLES")

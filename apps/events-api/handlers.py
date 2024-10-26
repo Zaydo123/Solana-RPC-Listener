@@ -3,8 +3,9 @@ import json
 import logging
 import os
 import sys
+import traceback
 from dotenv import find_dotenv, load_dotenv
-logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 
 """
 
@@ -55,42 +56,54 @@ async def store_token(data: dict):
         real_supply = data["RealSupply"]
         supply = data["Supply"]
         decimals = data["Decimals"]
-        number_of_buys = data["NumberOfBuys"]
-        number_of_sells = data["NumberOfSells"]
         freeze_authority = data["FreezeAuthority"]
         mint_authority = data["MintAuthority"]
         base_pool_account = data["BasePoolAccount"]
         quote_pool_account = data["QuotePoolAccount"]
         owner = data["Owner"]
         is_initialized = data["IsInitialized"]
-        ipo_time = data["IPO"] / 1000  # Convert IPO timestamp from milliseconds to seconds
+        ipo_time = data["IPO"]  # Convert IPO timestamp from milliseconds to seconds
         last_updated = data["LastUpdated"] / 1000  # Convert to seconds
         total_buy_volume = data["TotalVolume"]["TotalBuyVolume"]
         total_sell_volume = data["TotalVolume"]["TotalSellVolume"]
         total_burned = data["TotalBurned"]
-        price = float(data["Prices"][0]["price"])  # Assuming prices list is always present
-        price_time = data["Prices"][0]["time"] / 1000  # Convert price timestamp to seconds
-        holders = json.dumps(data["LargestHolders"])  # Assuming LargestHolders is a list of holders
-        
+
+
+
+        prices = data.get("Prices", None)
+        if prices is None:
+            price = -1
+            price_time = -1
+        else:
+            price = prices[0].get("price", -1)
+            price_time = prices[0].get("time", -1)
+
+
+        holders = data.get("LargestHolders", [])  # Assuming LargestHolders is a list of holders
+        if holders is None:
+            holders = []
+        else:
+            holders = json.dumps(holders[0].get("holders", []))  # Assuming holders is a list of dictionaries
+        logging.info(holders)
+
         # Call the database procedure to insert the token data
         DB.call_procedure(
             "insert_token_data",
             [
-                "TEXT", "JSONB", "NUMERIC", "INT", "BIGINT", "BIGINT", "TEXT", "TEXT", 
-                "TEXT", "TEXT", "TEXT", "BOOLEAN", "PRECISION", "DOUBLE PRECISION", 
+                "TEXT", "JSONB", "NUMERIC", "NUMERIC","INT", "TEXT", "TEXT", 
+                "TEXT", "TEXT", "TEXT", "BOOLEAN", "DOUBLE PRECISION", "DOUBLE PRECISION", 
                 "NUMERIC", "NUMERIC", "NUMERIC", "NUMERIC", "DOUBLE PRECISION", "JSONB"
             ], 
-            public_key, metadata, real_supply, supply, decimals, number_of_buys, 
-            number_of_sells, freeze_authority, mint_authority, base_pool_account, 
+            public_key, metadata, real_supply, supply, decimals, freeze_authority, mint_authority, base_pool_account, 
             quote_pool_account, owner, is_initialized, ipo_time, last_updated, 
             total_buy_volume, total_sell_volume, total_burned, price, price_time, holders
         )
-        logging.info(f"Inserted token: {public_key}")
         
     except Exception as e:
-        logging.error(f"Error in storing token: {e}")
-        logging.error(f"Type: {type(e)}")
+        # use traceback to get the full error
+        logging.error(f"Error in storing token: {traceback.format_exc()}")
         raise
+
 
 
 # Handler for price events (Inserts price data into the database)
@@ -102,7 +115,6 @@ async def store_price(data: dict):
         
         # Fetch the token ID (or some mapping of tokenAddress to the token table's ID)
         DB.call_procedure("insert_token_price", ["TEXT", "NUMERIC", "DOUBLE PRECISION"], public_key, price, timestamp)
-        logging.info(f"Inserted price for token: {public_key}")
         
     except Exception as e:
         logging.error(f"Error in storing price: {e}")
@@ -114,7 +126,7 @@ async def store_volume(data: dict):
         public_key = data["tokenAddress"]
         buy_volume = float(data["totalBuyVolume"])
         sell_volume = float(data["totalSellVolume"])
-        timestamp = data["time"] / 1000  # Convert to seconds
+        timestamp = data["time"]
         
         # Call the volume update procedure
         DB.call_procedure("update_token_volume", ["TEXT","NUMERIC","NUMERIC","DOUBLE PRECISION"], public_key, buy_volume, sell_volume, timestamp)
@@ -128,12 +140,13 @@ async def store_volume(data: dict):
 async def store_top_holders(data: dict):
     try:
         public_key = data["tokenAddress"]
-        holders = json.dumps(data["holders"])  # Convert holders to JSON format
+        holders = json.dumps(data)
         timestamp = data["timestamp"] / 1000  # Convert to seconds
+        top_ownership_percentage = data["topOwnershipPercentage"]
+
         
         # Call the holder insertion procedure
-        DB.call_procedure("insert_token_holders", ["TEXT","JSONB"],public_key, holders, timestamp)
-        logging.info(f"Inserted top holders for token: {public_key}")
+        DB.call_procedure("insert_token_holders", ["TEXT","JSONB", "NUMERIC","DOUBLE PRECISION"],public_key, holders, top_ownership_percentage, timestamp)
         
     except Exception as e:
         logging.error(f"Error in storing top holders: {e}")

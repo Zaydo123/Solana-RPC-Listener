@@ -85,7 +85,7 @@ async def kafka_listener():
 
     while True:
         try:
-            message = consumer.poll(timeout=0.0)
+            message = consumer.poll(timeout=0.1)
 
             if message is None:
                 continue
@@ -102,7 +102,7 @@ async def kafka_listener():
 
             # Process message
             topic = message.topic(); key = message.key(); value = message.value()
-            logging.info(f"Received message: from topic: {topic}, key: {key}")
+            logging.debug(f"Received message: from topic: {topic}, key: {key}")
             await pub_to_timescale(topic,json.loads(value))
 
         except Exception as e:

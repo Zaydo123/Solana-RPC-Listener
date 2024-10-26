@@ -14,20 +14,17 @@ CREATE TABLE IF NOT EXISTS token (
     realsupply BIGINT,
     supply NUMERIC(38, 18),
     decimals INT NOT NULL,
-    numberofbuys BIGINT DEFAULT 0,
-    numberofsells BIGINT DEFAULT 0,
     freezeauthority TEXT,
     mintauthority TEXT,
     basepoolaccount TEXT,
     quotepoolaccount TEXT,
     owner TEXT,
-    totalbuyvolume NUMERIC(38, 18),
-    totalsellvolume NUMERIC(38, 18),
-    totalburned NUMERIC(38, 18),
+    totalbuyvolume NUMERIC(38, 18) DEFAULT 0,
+    totalsellvolume NUMERIC(38, 18) DEFAULT 0,
+    totalburned NUMERIC(38, 18) DEFAULT 0,
     isinitialized BOOLEAN NOT NULL,
     ipo TIMESTAMPTZ,
-    lastupdated TIMESTAMPTZ,
-    lastcacheupdate TIMESTAMPTZ DEFAULT NOW()
+    lastupdated TIMESTAMPTZ
 );
 
 /* Table for storing individual holder's data (including changes over time) */
@@ -143,7 +140,7 @@ SELECT add_compression_policy('burnperiods', INTERVAL '1 day', if_not_exists => 
 /* Table for storing top ownership percentage */
 CREATE TABLE IF NOT EXISTS largestholders (
     tokenid BIGINT NOT NULL,
-    topownershippercentage NUMERIC(7, 5),
+    topownershippercentage NUMERIC(8, 5),
     timestamp TIMESTAMPTZ NOT NULL,
     CONSTRAINT pk_largestholders PRIMARY KEY (tokenid, timestamp),
     CONSTRAINT fk_token_largestholders FOREIGN KEY (tokenid) REFERENCES token(id) ON DELETE CASCADE
