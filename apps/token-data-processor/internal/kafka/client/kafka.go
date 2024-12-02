@@ -91,8 +91,11 @@ func SendTokenVolumeToKafka(tokenAddressString string, volumeObj *models.Volume)
 	}
 
 	// Manually inject the tokenAddressString into the JSON
-	// Convert marshaledVolume to a string, strip the final '}' and append the tokenAddress
-	finalVolumeJSON := string(marshaledVolume[:len(marshaledVolume)-1]) + `,"tokenAddress":"` + tokenAddressString + `"}`
+	// Convert marshaledVolume to a string, strip the final '}' and append the tokenAddress and volume details
+	finalVolumeJSON := string(marshaledVolume[:len(marshaledVolume)-1]) + `,"tokenAddress":"` + tokenAddressString + `",` +
+		`"totalVolume":"` + volumeObj.BuyVolume.Add(volumeObj.SellVolume).String() + `",` +
+		`"totalBuyVolume":"` + volumeObj.BuyVolume.String() + `",` +
+		`"totalSellVolume":"` + volumeObj.SellVolume.String() + `"}`
 
 	// Send the modified JSON to Kafka
 	err = producer.Produce(&kafka.Message{

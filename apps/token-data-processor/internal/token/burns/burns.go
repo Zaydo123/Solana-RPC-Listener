@@ -159,7 +159,10 @@ func CleanupUnknownTokens() {
 		}
 	}
 	log.Info().Msgf("Cleaned up %d unknown tokens", totalDeleted)
-	totalDeleted = 0
+	// size of local store
+	log.Info().Msgf("Size of unknown tokens: %d", len(unknownTokens))
+	// size of entire map
+	log.Info().Msgf("Size of known tokens: %d", len(unknownTokens))
 }
 
 // BlackListRefreshTask reloads the blacklist from the file every intervalSeconds seconds
